@@ -171,6 +171,21 @@ class DependencyRegressionTests(unittest.TestCase):
             self.assertIsNone(e.shared_fonts({'folder':tmp}))
             (folder/(names[-1]+'.bfttf')).write_bytes(b'x'*16)
             self.assertEqual(e.shared_fonts({'folder':tmp}),folder)
+    def test_cache_credit_ignores_symlinked_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); cache=root/'cache'; cache.mkdir()
+            data=root/'game.nsp';data.write_bytes(b'x'*4096)
+            (cache/'input.nsp').symlink_to(data)
+            self.assertEqual(e.cached_bytes(cache),0)
+            (cache/'own.bin').write_bytes(b'x'*4096)
+            self.assertEqual(e.cached_bytes(cache),4096)
+    def test_resume_keeps_workspace_and_signing_allowance(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(e,'cached_bytes',return_value=1000*e.GIB):
+            root=Path(tmp); (root/'botw.nsp').write_bytes(b'PFS0'+b'x'*16)
+            key=root/'prod.keys'; key.write_text('master_key_00 = '+'0'*32)
+            c=dict(folder=tmp,keys=str(key),backend='auto',target='ios',install=True,output=tmp)
+            report=e.game_report(c)
+            self.assertGreaterEqual(report['disks'][0]['required'],34*e.GIB)
     def test_runtime_without_sdk_is_not_accepted(self):
         with patch.object(e.os,'access',return_value=True), patch.object(e,'probe',return_value=(True,'')):
             self.assertIsNone(e.dotnet_sdk())

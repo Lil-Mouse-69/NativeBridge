@@ -270,6 +270,21 @@ def install_missing(c):
     if report['missing']: raise RuntimeError('Some tools are still missing after setup. See the checklist; no success was assumed.')
     emit('done',text='Required tools are installed and checked.')
 
+def job_identity(folder, backend):
+    return hashlib.sha256((str(Path(folder).resolve())+backend).encode()).hexdigest()[:12]
+
+def cached_bytes(folder):
+    total=0
+    for here, dirs, names in os.walk(folder, followlinks=False):
+        dirs[:]=[d for d in dirs if not (Path(here)/d).is_symlink()]
+        for name in names:
+            p=Path(here)/name
+            try:
+                if p.is_symlink() or not p.is_file(): continue
+                st=p.stat(); total+=min(st.st_size,st.st_blocks*512)
+            except OSError: pass
+    return total
+
 def shared_fonts(c):
     root=Path(c.get('folder') or '/nonexistent-nativebridge-game')
     names=('0-standard','1-chinese-simplified','2-chinese-simplified-extension','3-chinese-traditional','4-korean','5-nintendo-extension')
@@ -314,6 +329,9 @@ def game_report(c):
         except ValueError as ex: add('Package selection',False,str(ex))
     size=sum(f.stat().st_size for f in files)
     cache=max(2*size+10*GIB,60*GIB if backend=='macnative' else 0)
+    if c.get('folder') and backend in REPOS:
+        used=cached_bytes(ROOT/'jobs'/job_identity(c['folder'],backend))
+        cache=max(20*GIB,cache-used) if used else cache
     output=int(size*1.2)+2*GIB
     if c.get('install'): cache+=output
     requirements=[(ROOT,cache,'build cache'),(c.get('output') or ROOT,output,'output artifact')]
@@ -367,7 +385,7 @@ def main(c):
         emit("log",text="Added in-game settings: control opacity, keep screen awake, and supported render-resolution options. Existing apps must be rebuilt to receive this menu.")
     py=shutil.which('python3.14',path=ENV['PATH'])
     if backend!='mush8' and not py: raise RuntimeError('Python 3.14 is missing. Click Install build tools first.')
-    identity=hashlib.sha256((str(Path(c['folder']).resolve())+backend).encode()).hexdigest()[:12]
+    identity=job_identity(c['folder'],backend)
     job=ROOT/'jobs'/identity; job.mkdir(parents=True,exist_ok=True)
     stamp=time.strftime('%Y%m%d-%H%M%S')
     target=out/(Path(c['folder']).name+'-'+stamp+('.app' if c['target']=='mac' else '.ipa'))
