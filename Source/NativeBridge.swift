@@ -29,7 +29,7 @@ struct AccountOption: Identifiable { let id: String; let name: String }
     @Published var start: Date?
     @Published var failed = false
     @Published var setupSheet = false
-    @Published var scope = "all"
+    @Published var scope = "selected"
     @Published var cache = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/NativeBridge").path
     @Published var checks: [CheckItem] = []
     @Published var fileChecks: [CheckItem] = []
@@ -229,7 +229,7 @@ struct ContentView: View {
         VStack(alignment:.leading,spacing:18) {
             Text("Let’s get your Mac ready.").font(.system(size:25,weight:.bold))
             Text("We check first. You approve downloads. Installed tools are kept.").foregroundStyle(.secondary)
-            Picker("Prepare tools for",selection:$m.scope) { Text("All three backends").tag("all"); Text("Selected game / backend only").tag("selected") }.pickerStyle(.segmented).disabled(m.running)
+            Text("Checking only the selected game / backend and target platform. Choose your game folder first when using Automatic.").font(.callout).foregroundStyle(.secondary)
             ScrollView {
                 VStack(alignment:.leading,spacing:13) {
                     ForEach(m.checks) { item in

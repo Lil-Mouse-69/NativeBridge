@@ -16,6 +16,8 @@ class SafetyTests(unittest.TestCase):
         self.package('unlabelled.nsp'); self.assertEqual(e.prepare(self.c)[1],'nxnative')
     def test_title_id_routes_zelda(self):
         self.package('[0100F2C0115B6000].nsp'); self.assertEqual(e.prepare(self.c)[1],'macnative')
+    def test_abbreviated_botw_routes_to_zelda_without_dotnet(self):
+        self.package('botw.nsp'); self.assertEqual(e.prepare(self.c)[1],'macnative')
     def test_ambiguous_base_stops(self):
         self.package('Tears of the Kingdom.nsp'); self.package('second base.nsp')
         with self.assertRaisesRegex(ValueError,'Multiple base'): e.prepare(self.c)
@@ -124,5 +126,53 @@ class SetupTests(unittest.TestCase):
             with patch.object(e.shutil,'disk_usage',return_value=usage(100,99,1)),patch.object(e,'emit'):
                 with self.assertRaisesRegex(RuntimeError,'emergency reserve'): e.run(['/bin/sleep','20'])
         finally: e.WATCH_PATHS.clear()
+
+class DependencyRegressionTests(unittest.TestCase):
+    def report(self, backend='auto', target='mac'):
+        with patch.object(e,'probe',return_value=(True,'Xcode 26\nstable-aarch64-apple-darwin')), patch.object(e.shutil,'which',return_value='/tools/tool'), patch.object(e,'dotnet_sdk',return_value='/usr/local/share/dotnet/dotnet'):
+            return {i['id']:i for i in e.tools_report(dict(backend=backend,target=target))['items']}
+    def test_automatic_without_game_does_not_assume_nxnative(self):
+        items=self.report()
+        self.assertIn('selection',items)
+        self.assertNotIn('dotnet',items)
+        self.assertFalse(any(k.startswith('brew:') for k in items))
+    def test_dotnet_only_for_nxnative(self):
+        for backend in ('macnative','mush8'):
+            self.assertNotIn('dotnet',self.report(backend,'ios'))
+        self.assertIn('dotnet',self.report('nxnative','ios'))
+    def test_mac_does_not_require_ios_build_tools(self):
+        for backend in e.REPOS:
+            items=self.report(backend)
+            for item in ('ios-sdk','brew:xcodegen','brew:cmake','brew:ninja','rust-ios'):
+                self.assertNotIn(item,items)
+        self.assertNotIn('metal',self.report('mush8'))
+    def test_ios_retains_required_tools(self):
+        self.assertIn('brew:cmake',self.report('macnative','ios'))
+        self.assertIn('rust-ios',self.report('mush8','ios'))
+        self.assertIn('ios-sdk',self.report('nxnative','ios'))
+    def test_working_tools_do_not_require_homebrew(self):
+        def which(name,**kw): return None if name=='brew' else '/tools/'+name
+        with patch.object(e.shutil,'which',side_effect=which), patch.object(e,'probe',return_value=(True,'stable-aarch64-apple-darwin')):
+            items=e.tools_report(dict(backend='mush8',target='mac'))['items']
+        self.assertNotIn('homebrew',[i['id'] for i in items])
+    def test_sdk_detected_outside_gui_path_and_reused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first=Path(tmp)/'old'; second=Path(tmp)/'new'
+            for folder in (first,second):
+                folder.mkdir(); executable=folder/'dotnet'; executable.touch(); executable.chmod(0o755)
+            with patch.dict(e.ENV,PATH=str(first)+':'+str(second)), patch.object(e,'probe',side_effect=[(True,'9.0.100 [sdk]'),(True,'10.0.100 [sdk]')]):
+                self.assertEqual(e.dotnet_sdk(),str(second/'dotnet'))
+                self.assertEqual(e.ENV['PATH'].split(':')[0],str(second))
+    def test_shared_fonts_require_complete_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)/'shared-fonts'; folder.mkdir()
+            names=('0-standard','1-chinese-simplified','2-chinese-simplified-extension','3-chinese-traditional','4-korean','5-nintendo-extension')
+            for name in names[:-1]: (folder/(name+'.bfttf')).write_bytes(b'x'*16)
+            self.assertIsNone(e.shared_fonts({'folder':tmp}))
+            (folder/(names[-1]+'.bfttf')).write_bytes(b'x'*16)
+            self.assertEqual(e.shared_fonts({'folder':tmp}),folder)
+    def test_runtime_without_sdk_is_not_accepted(self):
+        with patch.object(e.os,'access',return_value=True), patch.object(e,'probe',return_value=(True,'')):
+            self.assertIsNone(e.dotnet_sdk())
 
 if __name__=='__main__': unittest.main()

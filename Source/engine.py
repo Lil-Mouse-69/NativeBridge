@@ -4,7 +4,7 @@ import hashlib, json, os, platform, re, shutil, signal, subprocess, sys, time, p
 from pathlib import Path
 ROOT = Path.home() / 'Library/Application Support/NativeBridge'
 REPOS = {'macnative': 'https://github.com/ly05010419/MacNativeGames.git', 'mush8': 'https://github.com/c22dev/mush8.git', 'nxnative': 'https://github.com/seedds/nxnative.git'}
-ENV = dict(os.environ, PATH='/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:/opt/homebrew/opt/python@3.14/bin:' + str(Path.home()/'.cargo/bin') + ':/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', PYTHONUNBUFFERED='1', GIT_TERMINAL_PROMPT='0', HOMEBREW_NO_AUTO_UPDATE='1', HOMEBREW_NO_ANALYTICS='1', DOTNET_CLI_TELEMETRY_OPTOUT='1', DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1')
+ENV = dict(os.environ, PATH='/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:/opt/homebrew/opt/python@3.14/bin:' + str(Path.home()/'.cargo/bin') + ':' + os.pathsep.join(filter(None, [os.environ.get('DOTNET_ROOT'), '/usr/local/share/dotnet', str(Path.home()/'.dotnet'), os.environ.get('PATH'), '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin'])), PYTHONUNBUFFERED='1', GIT_TERMINAL_PROMPT='0', HOMEBREW_NO_AUTO_UPDATE='1', HOMEBREW_NO_ANALYTICS='1', DOTNET_CLI_TELEMETRY_OPTOUT='1', DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1')
 child = None
 
 def emit(kind, **kw):
@@ -73,7 +73,7 @@ def role(p):
 def backend_for(files, choice):
     if choice != 'auto': return choice
     n = ' '.join(str(f).lower() for f in files)
-    if any(s in n for s in ('0100f2c0115b6000', 'tears of the kingdom', '01007ef00011e000', 'breath of the wild')): return 'macnative'
+    if re.search(r'(?<![a-z0-9])(botw|totk)(?![a-z0-9])', n) or any(s in n for s in ('0100f2c0115b6000', 'tears of the kingdom', '01007ef00011e000', 'breath of the wild')): return 'macnative'
     if any(s in n for s in ('0100152000022000', 'mario kart', 'mariokart')): return 'mush8'
     return 'nxnative'
 
@@ -118,7 +118,7 @@ PACKAGES = {'macnative':['opus','libvpx','python@3.14','xcodegen','cmake','ninja
 def probe(args, timeout=20):
     try:
         p=subprocess.run(list(map(str,args)),env=ENV,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=timeout)
-        return p.returncode==0, p.stdout.strip()
+        return p.returncode==0, (p.stdout.strip() or p.stderr.strip())
     except (OSError,subprocess.TimeoutExpired): return False,''
 
 def ancestor(path):
@@ -173,18 +173,31 @@ def devices():
             return [{'id':d['identifier'],'name':d.get('deviceProperties',{}).get('name','iPhone / iPad'),'state':d.get('connectionProperties',{}).get('tunnelState','paired')} for d in data.get('result',{}).get('devices',[]) if d.get('hardwareProperties',{}).get('platform')=='iOS']
         except (ValueError,KeyError): return []
 
+def dotnet_sdk():
+    # GUI apps do not inherit shell profile changes made by Microsoft's installer.
+    candidates = [shutil.which('dotnet', path=ENV['PATH'])]
+    candidates += [str(Path(folder)/'dotnet') for folder in ENV['PATH'].split(os.pathsep) if folder]
+    for executable in dict.fromkeys(p for p in candidates if p):
+        if not os.access(executable, os.X_OK): continue
+        ok, versions = probe([executable, '--list-sdks'])
+        if ok and any(re.match(r'10\.\d+\.\d+(?:\s|$)', line.strip()) for line in versions.splitlines()):
+            ENV['PATH'] = str(Path(executable).parent) + os.pathsep + ENV['PATH']
+            return executable
+    return None
+
 def tools_report(c):
     selected=c.get('backend','auto'); files=[]
     if c.get('folder'):
         try: files=scan(c['folder'])
         except ValueError: pass
-    backends=list(REPOS) if c.get('scope','selected')=='all' else [backend_for(files,selected)]
+    backends=list(REPOS) if c.get('scope','selected')=='all' else ([backend_for(files,selected)] if selected != 'auto' or files else [])
+    ios=c.get('target')=='ios'
     items=[]
     def add(id,name,ok,detail,gb=0,installable=True):
         items.append(dict(id=id,name=name,ok=bool(ok),detail=detail,gb=gb,installable=installable))
     add('silicon','Apple silicon',platform.machine()=='arm64',platform.machine(),installable=False)
     version=platform.mac_ver()[0]
-    minimum=14 if backends==['mush8'] else 26
+    minimum=26 if any(b in backends for b in ('macnative','nxnative')) else 14
     add('macos',f'macOS {minimum} or newer',int(version.split('.')[0] or 0)>=minimum,version,installable=False)
     ok,v=probe(['xcodebuild','-version']); m=re.search(r'Xcode (\d+)',v)
     xcode=bool(ok and m and int(m[1])>=26)
@@ -192,25 +205,33 @@ def tools_report(c):
     ok,_=probe(['xcodebuild','-checkFirstLaunchStatus']) if xcode else (False,'')
     add('xcode-ready','Xcode first-launch setup',ok,'Open Xcode to accept its license and finish components.' if not ok else 'Ready',installable=False)
     brew=shutil.which('brew',path=ENV['PATH'])
-    add('homebrew','Homebrew',bool(brew),brew or 'Approval required; installer may ask for your Mac password.',1,False)
-    for package in sorted(set(p for b in backends for p in PACKAGES[b])):
+    if not backends:
+        add('selection','Choose a game or backend',False,'Select your game folder or a specific backend to check only its required tools.',installable=False)
+    packages=set(p for b in backends for p in PACKAGES[b])
+    if not ios:
+        packages -= {'xcodegen','cmake','ninja'}
+    for package in sorted(packages):
         ok,v=probe([brew,'list','--versions',package]) if brew else (False,'')
         command={'python@3.14':'python3.14','rustup':'rustup','xcodegen':'xcodegen','cmake':'cmake','ninja':'ninja','glslang':'glslangValidator','spirv-cross':'spirv-cross'}.get(package)
         if not (ok and v) and command and shutil.which(command,path=ENV['PATH']):
             ok,v=probe([command,'--version'])
         add('brew:'+package,package,bool(ok and v),v or 'Missing — Homebrew formula',2 if package=='rustup' else 1)
     if 'nxnative' in backends:
-        ok,v=probe(['dotnet','--list-sdks']); ok=ok and any(re.match(r'10\.',line) for line in v.splitlines())
-        add('dotnet','.NET SDK 10',ok,'SDK 10 detected' if ok else 'Missing — official Homebrew cask',3)
+        sdk=dotnet_sdk()
+        add('dotnet','.NET SDK 10 (nxnative only)',bool(sdk),f'SDK 10 detected: {sdk}' if sdk else 'nxnative requires SDK 10 to build its .NET tools. Checked system, user, DOTNET_ROOT and PATH locations.',3)
     if 'mush8' in backends:
         ok,v=probe(['rustup','toolchain','list'])
         stable=ok and any(s.startswith('stable') for s in v.splitlines())
         add('rust-stable','Rust stable toolchain',stable,'Installed' if stable else 'Missing — rustup',3)
         pinned=ok and any(s.startswith('1.98.1') for s in v.splitlines())
-        add('rust-ios','Rust 1.98.1 + iOS target',pinned and probe(['rustup','target','list','--installed','--toolchain','1.98.1'])[1].find('aarch64-apple-ios')>=0,'Required by Mush8 for iPhone builds',3)
-    ok,v=probe(['xcrun','metal','--version']) if xcode else (False,'')
-    add('metal','Apple Metal toolchain',ok,v.splitlines()[0] if ok and v else 'Missing — Apple component download',5)
-    if c.get('target')=='ios' or c.get('scope')=='all':
+        if ios: add('rust-ios','Rust 1.98.1 + iOS target',pinned and probe(['rustup','target','list','--installed','--toolchain','1.98.1'])[1].find('aarch64-apple-ios')>=0,'Required by Mush8 for iPhone builds',3)
+    if backends and (ios or any(b != 'mush8' for b in backends)):
+        ok,v=probe(['xcrun','metal','--version']) if xcode else (False,'')
+        add('metal','Apple Metal toolchain',ok,v.splitlines()[0] if ok and v else 'Missing — Apple component download',5)
+    needs_brew=any(not i['ok'] and (i['id'].startswith('brew:') or i['id']=='dotnet') for i in items)
+    if needs_brew:
+        add('homebrew','Homebrew (for missing-tool installation)',bool(brew),brew or 'Needed only to install the missing packages listed above. Existing working tools do not require Homebrew.',1,False)
+    if ios:
         ok,v=probe(['xcrun','--sdk','iphoneos','--show-sdk-path']) if xcode else (False,'')
         add('ios-sdk','iOS SDK',ok,v or 'Open Xcode Settings → Components and install iOS support.',installable=False)
     missing=[i for i in items if not i['ok'] and i['installable']]
@@ -249,6 +270,14 @@ def install_missing(c):
     if report['missing']: raise RuntimeError('Some tools are still missing after setup. See the checklist; no success was assumed.')
     emit('done',text='Required tools are installed and checked.')
 
+def shared_fonts(c):
+    root=Path(c.get('folder') or '/nonexistent-nativebridge-game')
+    names=('0-standard','1-chinese-simplified','2-chinese-simplified-extension','3-chinese-traditional','4-korean','5-nintendo-extension')
+    for folder in (root/'shared-fonts',root/'BotW_build/totk/extracted/firmware/shared-fonts'):
+        if all((folder/(name+'.bfttf')).is_file() and (folder/(name+'.bfttf')).stat().st_size > 8 for name in names):
+            return folder
+    return None
+
 def game_report(c):
     items=[]
     def add(name,ok,detail): items.append(dict(id=name,name=name,ok=ok,detail=detail,gb=0,installable=False))
@@ -279,7 +308,9 @@ def game_report(c):
             required=backend=='mush8' or (b is not None and b.suffix.lower()=='.nsp')
             fw=Path(c.get('firmware') or '/nonexistent-nativebridge-firmware')
             has_nca=fw.is_dir() and next(fw.rglob('*.nca'),None) is not None
-            if required or c.get('firmware'): add('Firmware files',has_nca,'NCA files found; content validated by backend.' if has_nca else 'Select an unpacked firmware directory containing .nca files.')
+            fonts=shared_fonts(c) if backend=='macnative' else None
+            if required or c.get('firmware'):
+                add('Firmware / shared fonts',has_nca or fonts is not None,'Existing shared fonts found; backend verifies their hashes.' if fonts else 'NCA files found; content validated by backend.' if has_nca else 'Select unpacked firmware, or place the six extracted .bfttf fonts in the game folder’s shared-fonts directory.')
         except ValueError as ex: add('Package selection',False,str(ex))
     size=sum(f.stat().st_size for f in files)
     cache=max(2*size+10*GIB,60*GIB if backend=='macnative' else 0)
@@ -350,6 +381,7 @@ def main(c):
         if update: args+=['--update',update]
         for d in dlc: args+=['--dlc',d]
         if c.get('firmware'): args+=['--firmware',c['firmware']]
+        elif shared_fonts(c): args+=['--shared-fonts',shared_fonts(c)]
         run(args,cwd=repo)
     elif backend=='nxnative':
         venv=repo/'.bridge-venv'
