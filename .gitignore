@@ -1,0 +1,32 @@
+# Generated application and release packages
+*.app/
+*.zip
+*.dmg
+*.pkg
+
+# Local build data and Python caches
+.DS_Store
+__pycache__/
+*.py[cod]
+.build/
+work/
+backends/
+jobs/
+*.log
+
+# Never publish game dumps, firmware, keys, or signing credentials
+*.nsp
+*.xci
+*.nsz
+*.xcz
+*.nca
+*.keys
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.ipa
+Firmware/
+firmware/
+.env
+.env.*
