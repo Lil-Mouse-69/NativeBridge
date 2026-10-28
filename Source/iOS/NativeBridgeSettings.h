@@ -1,6 +1,7 @@
 // NativeBridge in-game settings. Compiled into the game host, never into game data.
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
+#import <GameController/GameController.h>
 #include <stdlib.h>
 #include <math.h>
 #ifndef NB_BACKEND
@@ -12,7 +13,7 @@ static NSString *const NBRenderKey = @"NativeBridge.renderChoice";
 static NSString *const NBKeepAwakeKey = @"NativeBridge.keepAwake";
 static NSString *NBRenderLabel(void) {
     NSString *value=[NSUserDefaults.standardUserDefaults stringForKey:NBRenderKey] ?: @"default";
-    return @{@"default":@"Game / launcher default",@"0.5":@"50% of base resolution",@"0.75":@"75% of base resolution",@"1.0":@"100% of base resolution",@"960x540":@"540p · 960 × 540",@"1280x720":@"720p · 1280 × 720",@"720":@"720p · Handheld",@"1080":@"1080p · Docked"}[value] ?: @"Game / launcher default";
+    return @{@"default":@"Game / launcher default",@"0.5":@"50% of base resolution",@"0.75":@"75% of base resolution",@"1.0":@"100% of base resolution",@"960x540":@"540p · 960 × 540",@"1280x720":@"Native 720p · 1280 × 720",@"720":@"720p · Handheld",@"1080":@"1080p · Docked"}[value] ?: @"Game / launcher default";
 }
 static BOOL NBScaleSupported(void) {
 #if NB_BACKEND == 0
@@ -22,7 +23,7 @@ static BOOL NBScaleSupported(void) {
     for (NSDictionary *row in json[@"settings"]) if ([row[@"env"] isEqual:@"DM_RENDER_SCALE"]) return YES;
     return NO;
 #elif NB_BACKEND == 1
-#if defined(TOTK_GAME_V143) && !defined(GAME_BOTW)
+#if defined(TOTK_GAME_V143) || defined(GAME_BOTW)
     return YES;
 #else
     return NO;
@@ -77,10 +78,15 @@ void nb_apply_settings(void) {
 }
 @interface NBSettingsPanel : UITableViewController
 @end
+@protocol NBTouchVisibility
+- (BOOL)nb_controlsHidden;
+@end
 @interface NBGameSettings : NSObject
 @property(nonatomic,strong) UIButton *button;
 @property(nonatomic,strong) NSTimer *timer;
 @property(nonatomic,weak) UIWindow *window;
+@property(nonatomic) BOOL sawTouchControls;
+@property(nonatomic) BOOL touchControlsVisible;
 + (instancetype)shared;
 - (void)refresh;
 - (void)show;
@@ -100,7 +106,12 @@ void nb_apply_settings(void) {
 - (void)applyToView:(UIView *)view {
     NSString *name=NSStringFromClass(view.class);
     if ([@[@"TOTKTouchPad",@"DmGamepad",@"NXTouchView"] containsObject:name]) {
-        // Layer opacity preserves touch hit-testing, even at 0%. The settings gear stays visible.
+        self.sawTouchControls=YES;
+        BOOL concealed=view.hidden || view.alpha < 0.01;
+        if ([view respondsToSelector:@selector(nb_controlsHidden)]) concealed=[(id<NBTouchVisibility>)view nb_controlsHidden];
+        else for (GCController *controller in GCController.controllers) if (controller.extendedGamepad) concealed=YES;
+        if (!concealed) self.touchControlsVisible=YES;
+        // Preserve hit testing at zero opacity; the gear follows controller concealment.
         double value=[NSUserDefaults.standardUserDefaults doubleForKey:NBOpacityKey];
         view.layer.opacity=(float)(isfinite(value) ? fmax(0,fmin(1,value)) : 1);
         return;
@@ -122,9 +133,11 @@ void nb_apply_settings(void) {
                 [self.button addTarget:self action:@selector(show) forControlEvents:UIControlEventTouchUpInside];
                 [w addSubview:self.button];
             }
-            self.button.frame=CGRectMake(w.bounds.size.width-w.safeAreaInsets.right-54,w.safeAreaInsets.top+8,44,44);
+            self.button.frame=CGRectMake(CGRectGetMidX(w.bounds)-22,CGRectGetMaxY(w.bounds)-w.safeAreaInsets.bottom-52,44,44);
             [w bringSubviewToFront:self.button];
+            self.sawTouchControls=NO; self.touchControlsVisible=NO;
             [self applyToView:w.rootViewController.view];
+            self.button.hidden=self.sawTouchControls && !self.touchControlsVisible;
             UIApplication.sharedApplication.idleTimerDisabled=[NSUserDefaults.standardUserDefaults boolForKey:NBKeepAwakeKey];
             return;
         }
@@ -150,13 +163,13 @@ void nb_apply_settings(void) {
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return section==2 ? 1 : (section==1 ? 3 : 2); }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section { return @[@"On-screen controls",@"Graphics",@"Restore defaults"][section]; }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if(section==0) return @"Opacity changes immediately and is saved for this game. At 0%, touch input still works. The gear stays visible. Opening settings does not pause the game.";
+    if(section==0) return @"Opacity changes immediately and is saved for this game. At 0%, touch input still works. The bottom-center gear follows the touch controls when a controller connects or disconnects. Opening settings does not pause the game.";
     if(section==1) {
         if(!NBScaleSupported()) return @"This game/version does not expose a supported runtime render-resolution control. Other settings still work. Use the original launcher for additional game-specific options.";
 #if NB_BACKEND == 0
         return @"Render scale affects the internal scene only where this game supports it. 75% of a 720p base is 540p; other base resolutions differ. Explicit env.txt overrides take priority. Close and reopen the app to apply graphics changes.";
 #elif NB_BACKEND == 1
-        return @"Internal scene resolution for Tears of the Kingdom 1.4.3; output is still upscaled. Close and reopen the app to apply graphics changes. Higher resolution uses more GPU and memory.";
+        return @"Internal scene resolution: 540p is upscaled to the 720p canvas; 720p renders at the native canvas size. Close and reopen the app to apply graphics changes. Higher resolution uses more GPU and memory.";
 #else
         return @"Mush8 supports handheld 720p and docked 1080p. 540p is not supported by this backend. Close and reopen the app to apply graphics changes.";
 #endif
@@ -216,7 +229,7 @@ void nb_apply_settings(void) {
 #if NB_BACKEND == 0
     values=@[@"default",@"0.5",@"0.75",@"1.0"]; labels=@[@"Game / launcher default",@"50% of base resolution",@"75% (540p from a 720p base)",@"100% (720p from a 720p base)"];
 #elif NB_BACKEND == 1
-    values=@[@"default",@"960x540",@"1280x720"]; labels=@[@"Game default",@"540p · 960 × 540",@"720p · 1280 × 720"];
+    values=@[@"default",@"960x540",@"1280x720"]; labels=@[@"Game default",@"540p · 960 × 540",@"Native 720p · 1280 × 720"];
 #else
     values=@[@"default",@"720",@"1080"]; labels=@[@"Launcher default",@"720p · Handheld",@"1080p · Docked"];
 #endif
