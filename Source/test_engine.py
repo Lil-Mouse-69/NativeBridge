@@ -171,6 +171,14 @@ class DependencyRegressionTests(unittest.TestCase):
             self.assertIsNone(e.shared_fonts({'folder':tmp}))
             (folder/(names[-1]+'.bfttf')).write_bytes(b'x'*16)
             self.assertEqual(e.shared_fonts({'folder':tmp}),folder)
+    def test_shared_fonts_reused_from_nativebridge_cache(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(e,'ROOT',Path(tmp)/'cache'):
+            game=Path(tmp)/'game';game.mkdir()
+            fonts=e.ROOT/'jobs'/e.job_identity(game,'macnative')/'work/totk/extracted/firmware/shared-fonts'
+            fonts.mkdir(parents=True)
+            for name in ('0-standard','1-chinese-simplified','2-chinese-simplified-extension','3-chinese-traditional','4-korean','5-nintendo-extension'):
+                (fonts/(name+'.bfttf')).write_bytes(b'x'*16)
+            self.assertEqual(e.shared_fonts({'folder':str(game)}),fonts)
     def test_cache_credit_ignores_symlinked_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); cache=root/'cache'; cache.mkdir()

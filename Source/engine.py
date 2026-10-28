@@ -288,7 +288,7 @@ def cached_bytes(folder):
 def shared_fonts(c):
     root=Path(c.get('folder') or '/nonexistent-nativebridge-game')
     names=('0-standard','1-chinese-simplified','2-chinese-simplified-extension','3-chinese-traditional','4-korean','5-nintendo-extension')
-    for folder in (root/'shared-fonts',root/'BotW_build/totk/extracted/firmware/shared-fonts'):
+    for folder in (root/'shared-fonts',root/'BotW_build/totk/extracted/firmware/shared-fonts', ROOT/'jobs'/job_identity(root,'macnative')/'work/totk/extracted/firmware/shared-fonts'):
         if all((folder/(name+'.bfttf')).is_file() and (folder/(name+'.bfttf')).stat().st_size > 8 for name in names):
             return folder
     return None

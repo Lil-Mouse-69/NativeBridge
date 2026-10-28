@@ -7,8 +7,8 @@ import ios_settings as patcher
 
 FIXTURES=Path(os.environ.get('NATIVEBRIDGE_UPSTREAM_FIXTURES','/not-provided'))
 MAPPING={
-    'nxnative':{'nx-main.m':'dm/ios/Sources/main.m','nx-front_ios.m':'dm/ios/Sources/front_ios.m'},
-    'macnative':{'mac-main.m':'games/totk/ios/Sources/main.m','mac-build_ipa.py':'games/totk/ios/tools/build_ipa.py'},
+    'nxnative':{'nx-main.m':'dm/ios/Sources/main.m','nx-front_ios.m':'dm/ios/Sources/front_ios.m','nx-DmGamepad.m':'dm/ios/Sources/DmGamepad.m'},
+    'macnative':{'mac-main.m':'games/totk/ios/Sources/main.m','mac-build_ipa.py':'games/totk/ios/tools/build_ipa.py','mac-touch_pad.m':'games/totk/ios/Sources/touch_pad.m','mac-game_patches_botw.c':'games/totk/runtime/game_patches_botw.c'},
     'mush8':{'mush-build.rs':'crates/nxhost/build.rs','mush-main.rs':'crates/nxhost/src/main.rs'}
 }
 @unittest.skipUnless(FIXTURES.is_dir(),'Set NATIVEBRIDGE_UPSTREAM_FIXTURES to actual upstream snapshots')

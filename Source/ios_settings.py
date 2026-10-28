@@ -2,7 +2,7 @@
 import hashlib, json
 from pathlib import Path
 
-VERSION = 1
+VERSION = 2
 
 def digest(data): return hashlib.sha256(data).hexdigest()
 
@@ -14,7 +14,8 @@ def once(text, anchor, replacement):
 def apply(repo, backend):
     repo=Path(repo)
     header=Path(__file__).with_name('iOS').joinpath('NativeBridgeSettings.h').read_bytes()
-    revision=digest(header+str(VERSION).encode())
+    phone_patch=Path(__file__).with_name('iOS').joinpath('BOTWPhoneResolution.c.inc').read_bytes()
+    revision=digest(header+phone_patch+str(VERSION).encode())
     manifest=repo/'.nativebridge-settings.json'
     previous={}; source_data={}
     if manifest.exists():
@@ -36,6 +37,8 @@ def apply(repo, backend):
         path='dm/ios/Sources/front_ios.m';text=read(path)
         edits[path]=once(text,'- (void)startGame {\n    if (self.game) return;', '- (void)startGame {\n    if (self.game) return;\n    extern void nb_apply_settings(void); nb_apply_settings();').encode()
         edits['dm/ios/Sources/NativeBridgeSettings.h']=header
+        path='dm/ios/Sources/DmGamepad.m';text=read(path)
+        edits[path]=once(text,'- (void)applyLayout {','- (BOOL)nb_controlsHidden { return _controls.hidden; }\n- (void)applyLayout {').encode()
     elif backend=='macnative':
         path='games/totk/ios/Sources/main.m';text=read(path)
         text=once(text,'#import "touch_pad.h"','#import "touch_pad.h"\n#define NB_BACKEND 1\n#import "NativeBridgeSettings.h"')
@@ -44,6 +47,15 @@ def apply(repo, backend):
         # Compile the verified 1.4.3 render-size hook into the embedded game module.
         edits[path]=once(text,'    e=dict(env,TOTK_EXPORT_IOS=str(modules))','    e=dict(env,TOTK_EXPORT_IOS=str(modules))\n    if a.version == "v143": e["TOTK_RENDER_RES"] = "1280x720"').encode()
         edits['games/totk/ios/Sources/NativeBridgeSettings.h']=header
+        path='games/totk/ios/Sources/touch_pad.m';text=read(path)
+        edits[path]=once(text,'- (void)conceal {','- (BOOL)nb_controlsHidden { return concealed; }\n- (void)conceal {').encode()
+        path='games/totk/runtime/game_patches_botw.c';text=read(path)
+        start=text.index('static void patch_phone_render(Module *m) {')
+        end=text.index('void runtime_game_patches(Module *m) {', start)
+        original=text[start:end]
+        if original.count('put_word(m, PHONE_RENDER + 4, 0xf2e88e08u') != 1:
+            raise RuntimeError('BOTW phone resolution integration no longer matches upstream.')
+        edits[path]=once(text,original,phone_patch.decode()).encode()
     elif backend=='mush8':
         edits['ios/NativeBridgeSettings.m']=b'#define NB_BACKEND 2\n'+header
         path='crates/nxhost/build.rs';text=read(path)
