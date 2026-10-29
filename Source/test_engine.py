@@ -163,6 +163,12 @@ class DependencyRegressionTests(unittest.TestCase):
             with patch.dict(e.ENV,PATH=str(first)+':'+str(second)), patch.object(e,'probe',side_effect=[(True,'9.0.100 [sdk]'),(True,'10.0.100 [sdk]')]):
                 self.assertEqual(e.dotnet_sdk(),str(second/'dotnet'))
                 self.assertEqual(e.ENV['PATH'].split(':')[0],str(second))
+    def test_sdk_detected_with_minimal_finder_path(self):
+        executable='/usr/local/share/dotnet/dotnet'
+        with patch.dict(e.ENV,PATH='/usr/bin:/bin'), patch.object(e.shutil,'which',return_value=None), patch.object(e.os,'access',side_effect=lambda p, mode: p==executable), patch.object(e,'probe',return_value=(True,'10.0.403 [/usr/local/share/dotnet/sdk]')):
+            self.assertEqual(e.dotnet_sdk(),executable)
+            self.assertEqual(e.ENV['PATH'].split(':')[0],'/usr/local/share/dotnet')
+
     def test_shared_fonts_require_complete_set(self):
         with tempfile.TemporaryDirectory() as tmp:
             folder=Path(tmp)/'shared-fonts'; folder.mkdir()

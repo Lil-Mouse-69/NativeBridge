@@ -1,6 +1,6 @@
 # NativeBridge
 
-**Experimental · v0.4.0 · Apple silicon**
+**Experimental · v0.4.1 · Apple silicon**
 
 See [validation and known limits](VALIDATION.md). No game files, keys or firmware are included.
 

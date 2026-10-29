@@ -1,6 +1,6 @@
 # Validation and limits
 
-NativeBridge 0.4.0 is an experimental local build orchestrator for Apple-silicon Macs. No games, keys, firmware or backend checkouts are included.
+NativeBridge 0.4.1 is an experimental local build orchestrator for Apple-silicon Macs. No games, keys, firmware or backend checkouts are included.
 
 ## Recovery verification
 
@@ -34,3 +34,7 @@ codesign --verify --deep --strict NativeBridge.app
 Upstream integration tests require NATIVEBRIDGE_UPSTREAM_FIXTURES and skip when those snapshots are absent. See Source/test_ios_settings.py for fixture paths. Tests without fixtures do not replace full integration coverage.
 
 The Mac wrapper is ad-hoc signed, without Developer ID signing or Apple notarization.
+
+## 0.4.1 SDK discovery
+
+All 37 engine tests passed. The rebuilt, signature-verified app detected the installed Microsoft .NET SDK 10.0.403 with PATH restricted to /usr/bin:/bin. Installer locations are now searched independently of PATH, including Homebrew versioned installations and architecture-specific locations. The previously reported missing-SDK symptom did not reproduce with 0.4.0 on this Mac.

@@ -177,6 +177,14 @@ def dotnet_sdk():
     # GUI apps do not inherit shell profile changes made by Microsoft's installer.
     candidates = [shutil.which('dotnet', path=ENV['PATH'])]
     candidates += [str(Path(folder)/'dotnet') for folder in ENV['PATH'].split(os.pathsep) if folder]
+    # Search installer locations independently of PATH, including Homebrew's
+    # versioned SDK and architecture-specific Microsoft installations.
+    roots = [ENV.get('DOTNET_ROOT_ARM64'), ENV.get('DOTNET_ROOT'),
+             '/usr/local/share/dotnet', str(Path.home()/'.dotnet'),
+             '/opt/homebrew/opt/dotnet/libexec', '/opt/homebrew/opt/dotnet@10/libexec',
+             '/usr/local/opt/dotnet/libexec', '/usr/local/opt/dotnet@10/libexec',
+             '/usr/local/share/dotnet/arm64', '/usr/local/share/dotnet/x64']
+    candidates += [str(Path(root)/'dotnet') for root in roots if root]
     for executable in dict.fromkeys(p for p in candidates if p):
         if not os.access(executable, os.X_OK): continue
         ok, versions = probe([executable, '--list-sdks'])
