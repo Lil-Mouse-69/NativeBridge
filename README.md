@@ -1,6 +1,6 @@
 # NativeBridge
 
-**Experimental · v0.3.1 · Apple silicon**
+**Experimental · v0.4.0 · Apple silicon**
 
 See [validation and known limits](VALIDATION.md). No game files, keys or firmware are included.
 
@@ -42,7 +42,7 @@ Source is included in `Source/`. Rebuild with `bash build.sh` using Xcode's Swif
 /usr/bin/python3 -m unittest discover -s Source -p 'test_*.py' -v
 ```
 
-Validated: Swift compilation, app packaging, 24 orchestration/setup tests (including a mocked build integration), and local launch. **No end-to-end retail game conversion, gameplay, Apple signing or iPhone installation has been validated.** This is an initial working orchestration app, not a guarantee that the upstream experimental ports will build or run every game.
+See [VALIDATION.md](VALIDATION.md) for current checks and outstanding device tests. Earlier version sections below describe historical validation.
 
 ## Upstream references
 
@@ -52,9 +52,15 @@ Validated: Swift compilation, app packaging, 24 orchestration/setup tests (inclu
 
 Build interfaces checked on October 26, 2026. Upstream changes can require adapter updates. This app contains no upstream source distribution; each backend is downloaded separately and retains its own license.
 
+## Version 0.4.0: requirements and iPhone settings
+
+Setup checks only tools needed for the selected game and platform. BOTW/TOTK folder names route correctly, installed .NET 10 SDKs outside Homebrew are detected, and .NET is required only for nxnative. Cached shared fonts and existing build-cache storage are reused.
+
+The iPhone gear sits at bottom center and follows the touch controls when controller use conceals them. BOTW 1.6.0/1.9.0 gains 540p and native 720p settings; restart the game after changing resolution. Rebuild and reinstall existing games to receive these changes. Controller hide/show still needs a physical-controller test.
+
 ## Version 0.2: guided setup and download approval
 
-The first launch opens **Setup & checks** automatically. It performs local checks only. Choose all three backends, or tools for the currently selected game/backend. The checklist checks Apple silicon, the macOS version, full Xcode and its first-launch setup, Homebrew, backend tools, a working Metal compiler, and the iOS SDK when applicable. Installed command-line tools are reused where detected, including tools outside Homebrew. Python/Xcode bootstrap detection runs natively so a machine without developer tools is not sent into a Python installation prompt just to show onboarding.
+The first launch opens **Setup & checks** automatically. It performs local checks only. Checks cover the currently selected game/backend and target platform. The checklist checks Apple silicon, the macOS version, full Xcode and its first-launch setup, Homebrew, backend tools, a working Metal compiler, and the iOS SDK when applicable. Installed command-line tools are reused where detected, including tools outside Homebrew. Python/Xcode bootstrap detection runs natively so a machine without developer tools is not sent into a Python installation prompt just to show onboarding.
 
 **Install missing tools…** shows the exact missing-tool list and an estimated installation footprint before you approve downloads. The backend rechecks the list before installation: newly missing tools require another approval. Homebrew installation has its own confirmation and runs its official installer in Terminal, where you can review its changes and enter your Mac administrator password. Xcode installation and license acceptance are completed in Apple's interfaces. The .NET package is fetched and checksum-verified by Homebrew, then opened in Apple's Installer for administrator authentication; return and click **Check again** after it completes. No dependencies were installed while developing/testing this update.
 
@@ -78,7 +84,7 @@ Rebuild and reinstall each game using NativeBridge 0.3 to include a **gear butto
 
 The menu includes:
 
-- **Controls opacity:** 0–100% of the original control layer's opacity, saved per app and applied immediately. At 0%, the controls are invisible but touch input remains active. The gear stays visible.
+- **Controls opacity:** 0–100% of the original control layer's opacity, saved per app and applied immediately. At 0%, the controls are invisible but touch input remains active. The gear stays visible unless controller use hides the touch controls.
 - **Keep screen awake:** saved per app.
 - **Rendering resolution:** supported options for the selected backend/game, saved for the next launch.
 - **Reset NativeBridge settings:** restores these preferences without deleting saves or changing the original launcher preferences.
@@ -88,7 +94,8 @@ Opening the menu does **not pause gameplay**. Close the app from the iPhone app 
 | Backend | Rendering options in the new menu |
 | --- | --- |
 | MacNativeGames, Tears of the Kingdom 1.4.3 | Internal 960×540 or 1280×720; output is still upscaled. The existing render-size hook is included during export. |
-| MacNativeGames, other Zelda versions / Breath of the Wild | Resolution is shown as unavailable; opacity and screen-awake settings still work. |
+| MacNativeGames, Breath of the Wild 1.6.0 / 1.9.0 | Internal 960×540 or native 1280×720; restart after changing. |
+| MacNativeGames, other Zelda versions | Resolution is unavailable unless supported by the backend hook. |
 | nxnative | 50%, 75%, or 100% of the base resolution only when the bundled game profile exposes `DM_RENDER_SCALE`. 75% of a 720p base is 540p; this does not mean every game has a 720p base. Explicit `env.txt` settings retain priority. |
 | Mush8 / Mario Kart 8 Deluxe | Handheld 720p or docked 1080p. This backend does not expose a verified 540p option. |
 
