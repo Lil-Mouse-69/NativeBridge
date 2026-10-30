@@ -335,12 +335,20 @@ def game_report(c):
             if required or c.get('firmware'):
                 add('Firmware / shared fonts',has_nca or fonts is not None,'Existing shared fonts found; backend verifies their hashes.' if fonts else 'NCA files found; content validated by backend.' if has_nca else 'Select unpacked firmware, or place the six extracted .bfttf fonts in the game folder’s shared-fonts directory.')
         except ValueError as ex: add('Package selection',False,str(ex))
-    size=sum(f.stat().st_size for f in files)
+    from build_extras import validate
+    extra_size=0
+    try:
+        extra_size=validate(c,backend)
+        if c.get('saveImport'): add('Save import',True,'Imported only into an empty save folder. Existing progress is preserved. Choose the actual save contents, not the emulator user/title wrapper.')
+        if c.get('cheatImport'): add('Cheat archive',True,'Text files will be included for storage only. These backends do not execute Eden cheat codes.')
+    except (ValueError,OSError) as ex: add('Optional imports',False,str(ex))
+    size=sum(f.stat().st_size for f in files)+extra_size
     cache=max(2*size+10*GIB,60*GIB if backend=='macnative' else 0)
     if c.get('folder') and backend in REPOS:
         used=cached_bytes(ROOT/'jobs'/job_identity(c['folder'],backend))
         cache=max(20*GIB,cache-used) if used else cache
     output=int(size*1.2)+2*GIB
+    if extra_size: output*=2  # streaming IPA rewrite temporarily keeps both copies
     if c.get('install'): cache+=output
     requirements=[(ROOT,cache,'build cache'),(c.get('output') or ROOT,output,'output artifact')]
     plan=disk_plan(requirements)
@@ -363,6 +371,11 @@ def link(source, dest):
     dest.symlink_to(source, target_is_directory=source.is_dir())
 
 def main(c):
+    if c['action']=='cleanup':
+        from build_extras import clean_job
+        backend=backend_for(scan(c['folder']),c.get('backend','auto'))
+        clean_job(ROOT,job_identity(c['folder'],backend))
+        emit('done',text='Completed build cache deleted. Exported apps, installed games, original packages, keys and saves were kept.'); return
     if c['action']=='check':
         emit('report',**tools_report(c)); emit('done',text='Local setup checks finished. Nothing downloaded.'); return
     if c['action']=='accounts':
@@ -432,6 +445,8 @@ def main(c):
         run(['/usr/bin/ditto',built,target])
         if c['target']=='mac': emit('log',text='Mush8: open the app, select your original game folder and press Prepare. Its launcher handles game-data preparation.')
     if not target.exists(): raise RuntimeError('Backend returned success but the expected artifact is missing.')
+    from build_extras import embed, stage
+    embed(target,c,backend)
     emit('artifact',path=str(target))
     if c.get('install') and c['target']=='ios':
         emit('stage',text='Signing and installing on iPhone',fraction=0.92)
@@ -457,6 +472,22 @@ def main(c):
             apps=list((derived/'Build/Products/Release-iphoneos').glob('*.app'))
             if len(apps)!=1: raise RuntimeError('Signed device app was not found.')
             run(['xcrun','devicectl','device','install','app','--device',c['device'],apps[0]])
+        if c.get('saveImport') or c.get('cheatImport'):
+            if backend=='macnative':
+                # The installer suffixes the base bundle ID with the signing team.
+                import zipfile, plistlib
+                with zipfile.ZipFile(target) as archive:
+                    names=[n for n in archive.namelist() if re.fullmatch(r'Payload/[^/]+\.app/Info.plist',n)]
+                    bundle=plistlib.loads(archive.read(names[0]))['CFBundleIdentifier']
+                suffix='.'+c['team'].lower()
+                bundle=(bundle[:-len(suffix)] if bundle.endswith(suffix) else bundle)+suffix
+            elif backend=='mush8': bundle=env['BUNDLE_ID']
+            else: bundle='org.nativebridge.game'+identity
+            with tempfile.TemporaryDirectory(prefix='nativebridge-import-') as tmp:
+                source=stage(tmp,c,backend)
+                run(['xcrun','devicectl','device','copy','to','--device',c['device'],'--source',source,'--destination','Documents/NativeBridgeImport','--domain-type','appDataContainer','--domain-identifier',bundle])
+            emit('log',text='Imported data staged. Restart the game to seed an empty save folder. Existing saves are never overwritten; cheat text is archived, not executed.')
+    (job/'.nativebridge-complete').write_text('NativeBridge completed build cache\n')
     hist[hkey]=time.time()-started; history.write_text(json.dumps(hist))
     emit('stage',text='Complete',fraction=1)
     emit('done',text='Build complete'+(' and installed on iPhone.' if c.get('install') and c['target']=='ios' else '.'))

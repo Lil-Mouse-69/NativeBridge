@@ -1,6 +1,6 @@
 # Validation and limits
 
-NativeBridge 0.4.1 is an experimental local build orchestrator for Apple-silicon Macs. No games, keys, firmware or backend checkouts are included.
+NativeBridge 0.5.0 is an experimental local build orchestrator for Apple-silicon Macs. No games, keys, firmware or backend checkouts are included.
 
 ## Recovery verification
 
@@ -38,3 +38,12 @@ The Mac wrapper is ad-hoc signed, without Developer ID signing or Apple notariza
 ## 0.4.1 SDK discovery
 
 All 37 engine tests passed. The rebuilt, signature-verified app detected the installed Microsoft .NET SDK 10.0.403 with PATH restricted to /usr/bin:/bin. Installer locations are now searched independently of PATH, including Homebrew versioned installations and architecture-specific locations. The previously reported missing-SDK symptom did not reproduce with 0.4.0 on this Mac.
+
+## 0.5.0 validation
+
+- 52 tests passed with actual upstream fixtures, including all three adapters, upgrade protection, IPA embedding, original-file preservation, import validation and bounded cleanup.
+- The actual Objective-C save import function was compiled and executed against temporary folders on macOS: Zelda account routing worked and a second launch preserved newer save progress.
+- iPhone settings compiled for nxnative, BOTW, TOTK 1.4.3 and Mush8.
+- Current upstream Zelda export now includes a render hook by default; the adapter accepts both that form and the earlier version-scoped export form.
+- No full game build or new physical iPhone test was performed for 0.5.0. Screen-fit behavior, custom render dimensions, overlay appearance and save usability still require gameplay validation.
+- Cheat import is archive-only. Universal nxnative screen fitting and Mush8 performance-overlay controls are not implemented.

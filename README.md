@@ -1,10 +1,20 @@
 # NativeBridge
 
-**Experimental · v0.4.1 · Apple silicon**
+**Experimental · v0.5.0 · Apple silicon**
 
 See [validation and known limits](VALIDATION.md). No game files, keys or firmware are included.
 
 A native Apple-silicon Mac app for building your own Switch game dumps into Mac apps and iPhone/iPad IPAs using existing community backends.
+
+## New in 0.5.0
+
+- **Save import for iPhone builds:** select unpacked save contents before building. Zelda routes them to the local account's save directory; nxnative uses its save directory. Mush8 needs its native `typeN-indexN` folder layout and the matching 3.0.5/4.0.1 selection. Imports seed an empty save folder on launch and never merge into or overwrite existing progress. Exported IPAs contain the seed; direct installs also stage it in Documents. Close and reopen the game after installation. Save formats must match the game/version; this is not a save-format converter.
+- **Screen shape in the iPhone cog:** Match my screen uses Zelda/Mush8's game-specific camera/aspect support without stretching. Some menus and cutscenes retain borders. nxnative has no verified universal aspect hook and marks this unavailable. TOTK 1.4.3 additionally accepts a custom even render size, up to 4096 per dimension and 4 megapixels. Resolution alone does not change a game's camera aspect. Restart after changes.
+- **Performance overlay in the cog:** Zelda and nxnative offer Full details, FPS only, Off and Game default. Restart after changing. Mush8 has no verified corresponding overlay control and marks this unavailable.
+- **Delete completed cache:** after a successful build in this version, remove that game's temporary job files with confirmation. Exported builds, backend downloads, installed games, source packages, keys and saves remain. Incomplete jobs cannot be deleted through this button.
+- **Cheat archive:** optionally package the title's `cheats/BUILD_ID.txt` files. This is storage only, clearly labeled inactive. Eden's cheat interpreter is not implemented by these native backends; imported codes do not execute.
+
+These additions are experimental. They have automated, native save-copy and compilation coverage, but have not been exercised in a newly built game on an iPhone. Rebuild and reinstall games to receive the new cog controls.
 
 ## Start
 

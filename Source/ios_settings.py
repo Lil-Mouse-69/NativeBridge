@@ -2,7 +2,7 @@
 import hashlib, json
 from pathlib import Path
 
-VERSION = 2
+VERSION = 3
 
 def digest(data): return hashlib.sha256(data).hexdigest()
 
@@ -33,6 +33,8 @@ def apply(repo, backend):
         raw=source_data[path] if path in source_data else (repo/path).read_bytes(); originals[path]=raw; return raw.decode()
     if backend=='nxnative':
         path='dm/ios/Sources/main.m'; text=read(path)
+        if '    front_hud_env();' in text:
+            text=once(text,'    front_hud_env();','    extern void nb_apply_overlay(void); nb_apply_overlay();\n    front_hud_env();')
         edits[path]=once(text,'int main(int argc, char **argv) {','#define NB_BACKEND 0\n#import "NativeBridgeSettings.h"\n\nint main(int argc, char **argv) {').encode()
         path='dm/ios/Sources/front_ios.m';text=read(path)
         edits[path]=once(text,'- (void)startGame {\n    if (self.game) return;', '- (void)startGame {\n    if (self.game) return;\n    extern void nb_apply_settings(void); nb_apply_settings();').encode()
@@ -45,10 +47,18 @@ def apply(repo, backend):
         edits[path]=once(text,'    unsetenv("TOTK_AUTOLOAD");','    unsetenv("TOTK_AUTOLOAD");\n    nb_apply_settings();').encode()
         path='games/totk/ios/tools/build_ipa.py';text=read(path)
         # Compile the verified 1.4.3 render-size hook into the embedded game module.
-        edits[path]=once(text,'    e=dict(env,TOTK_EXPORT_IOS=str(modules))','    e=dict(env,TOTK_EXPORT_IOS=str(modules))\n    if a.version == "v143": e["TOTK_RENDER_RES"] = "1280x720"').encode()
+        anchor='    e=dict(env,TOTK_EXPORT_IOS=str(modules))'
+        if anchor in text:
+            text=once(text,anchor,anchor+'\n    if a.version == "v143": e["TOTK_RENDER_RES"] = "1280x720"')
+        elif text.count("    e=dict(env,TOTK_EXPORT_IOS=str(modules),TOTK_RENDER_RES='1280x720')")!=1:
+            raise RuntimeError('iPhone export resolution integration no longer matches upstream.')
+        edits[path]=text.encode()
         edits['games/totk/ios/Sources/NativeBridgeSettings.h']=header
         path='games/totk/ios/Sources/touch_pad.m';text=read(path)
         edits[path]=once(text,'- (void)conceal {','- (BOOL)nb_controlsHidden { return concealed; }\n- (void)conceal {').encode()
+        path='games/totk/third_party/d2r_gfx/gfx/nvn/fps_overlay.c';text=read(path)
+        anchor='void fps_overlay_text(const fps_overlay_info *info, char *text, size_t n) {'
+        edits[path]=once(text,anchor,anchor+'\n    const char *nb_mode = getenv("NATIVEBRIDGE_OVERLAY");\n    if (nb_mode && !strcmp(nb_mode,"fps")) { if (info->fps < 0) snprintf(text,n,"FPS --"); else snprintf(text,n,"FPS %d",info->fps); return; }').encode()
         path='games/totk/runtime/game_patches_botw.c';text=read(path)
         start=text.index('static void patch_phone_render(Module *m) {')
         end=text.index('void runtime_game_patches(Module *m) {', start)

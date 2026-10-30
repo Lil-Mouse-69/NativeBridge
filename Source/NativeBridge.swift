@@ -12,6 +12,9 @@ struct AccountOption: Identifiable { let id: String; let name: String }
     @Published var output = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads/NativeBridge Builds").path
     @Published var backend = "auto"
     @Published var target = "mac"
+    @Published var saveImport = ""
+    @Published var cheatImport = ""
+    @Published var saveVersion = "4.0.1"
     @Published var firmware = ""
     @Published var base = ""
     @Published var update = ""
@@ -181,7 +184,7 @@ struct AccountOption: Identifiable { let id: String; let name: String }
         guard !running else { return }
         guard pythonAvailable() else { setupSheet = true; checkSetup(); return }
         guard let script = Bundle.main.url(forResource: "engine", withExtension: "py") else { status = "Missing bundled build engine"; failed = true; return }
-        let settings: [String:Any] = ["action":action,"folder":folder,"keys":keys,"output":output,"backend":backend,"target":target,"firmware":firmware,"base":base,"update":update,"install":install && target == "ios","team":team,"device":device,"free":free,"cache":cache,"scope":scope,"approved":approved,"downloadsApproved":allowDownloads]
+        let settings: [String:Any] = ["saveImport":saveImport,"cheatImport":cheatImport,"saveVersion":saveVersion,"action":action,"folder":folder,"keys":keys,"output":output,"backend":backend,"target":target,"firmware":firmware,"base":base,"update":update,"install":install && target == "ios","team":team,"device":device,"free":free,"cache":cache,"scope":scope,"approved":approved,"downloadsApproved":allowDownloads]
         for k in ["folder","keys","output","firmware","team","device","cache"] { UserDefaults.standard.set(settings[k],forKey:k) }
         do {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("nativebridge-\(UUID().uuidString).json")
@@ -204,6 +207,9 @@ struct AccountOption: Identifiable { let id: String; let name: String }
             }
             process = p; try p.run()
         } catch { running = false; failed = true; status = error.localizedDescription; if let u = configURL { try? FileManager.default.removeItem(at:u) } }
+    }
+    func cleanBuild() {
+        if confirm("Delete this game's completed build cache?", "Removes temporary build files for the selected game/backend from the build cache. Exported apps, installed games, original game packages, keys and save files are kept. The next build will need to recreate its cache.", button:"Delete cache") { run("cleanup") }
     }
     func exportLog() {
         let panel = NSSavePanel(); panel.nameFieldStringValue = "NativeBridge-build.log"
@@ -311,6 +317,11 @@ struct ContentView: View {
                         }
                         if m.target == "ios" {
                             Divider()
+                            pathRow("Import a save (optional)",value:$m.saveImport,directory:true,hint:"Unpacked save contents, not the title/user wrapper folder")
+                            Text("Seeds an empty save folder on next launch. Zelda/nxnative: select raw save contents. Mush8: select its native save folder containing typeN-indexN folders. Existing progress is preserved. Clear the path to omit the import.").font(.system(size:11)).foregroundStyle(.secondary)
+                            Picker("Mario Kart save version (Mush8 only)",selection:$m.saveVersion) { Text("4.0.1").tag("4.0.1"); Text("3.0.5").tag("3.0.5") }
+                            pathRow("Archive cheat files (optional · inactive)",value:$m.cheatImport,directory:true,hint:"Title folder containing cheats/BUILD_ID.txt files")
+                            Text("Stores Eden-format text with the app. These native backends do not execute Eden cheat codes; importing does not activate cheats.").font(.system(size:11)).foregroundStyle(.secondary)
                             Label("Includes an in-game settings menu",systemImage:"gearshape.fill").foregroundStyle(cyan)
                             Text("Change touch-control opacity and supported rendering options on your iPhone. Graphics changes need a restart. Existing apps must be rebuilt.").font(.system(size:11)).foregroundStyle(.secondary)
                             Toggle("Sign and install on my iPhone after building",isOn:$m.install).onChange(of:m.install) { _, enabled in if enabled && !m.running { m.run("accounts") } }
@@ -335,6 +346,7 @@ struct ContentView: View {
                     HStack(spacing:12) {
                         Button { m.run("prebuild") } label: { Label("Build game",systemImage:"hammer.fill").padding(.horizontal,14).padding(.vertical,5) }.buttonStyle(.borderedProminent).tint(cyan).foregroundStyle(.black).disabled(m.running || m.folder.isEmpty || m.keys.isEmpty || m.output.isEmpty)
                         Button("Check files & space") { m.run("inspect") }.disabled(m.running || m.folder.isEmpty)
+                        Button("Delete completed cache…") { m.cleanBuild() }.disabled(m.running || m.folder.isEmpty)
                         Button("Setup tools…") { m.setupSheet = true; m.checkSetup() }.disabled(m.running)
                         Spacer()
                         if m.running { Button("Cancel") { m.status = "Cancelling…"; m.process?.terminate() } }

@@ -11,9 +11,13 @@ static NSString *const NBOpacityKey = @"NativeBridge.controlsOpacity";
 static NSString *const NBFPSKey = @"NativeBridge.fpsTarget";
 static NSString *const NBRenderKey = @"NativeBridge.renderChoice";
 static NSString *const NBKeepAwakeKey = @"NativeBridge.keepAwake";
+static BOOL NBCustomSize(NSString *value) {
+    unsigned w=0,h=0; char extra;
+    return value && sscanf(value.UTF8String,"%ux%u%c",&w,&h,&extra)==2 && w>=64 && h>=64 && w<=4096 && h<=4096 && !(w%2) && !(h%2) && (uint64_t)w*h<=4194304;
+}
 static NSString *NBRenderLabel(void) {
     NSString *value=[NSUserDefaults.standardUserDefaults stringForKey:NBRenderKey] ?: @"default";
-    return @{@"default":@"Game / launcher default",@"0.5":@"50% of base resolution",@"0.75":@"75% of base resolution",@"1.0":@"100% of base resolution",@"960x540":@"540p · 960 × 540",@"1280x720":@"Native 720p · 1280 × 720",@"720":@"720p · Handheld",@"1080":@"1080p · Docked"}[value] ?: @"Game / launcher default";
+    return @{@"default":@"Game / launcher default",@"0.5":@"50% of base resolution",@"0.75":@"75% of base resolution",@"1.0":@"100% of base resolution",@"960x540":@"540p · 960 × 540",@"1280x720":@"Native 720p · 1280 × 720",@"720":@"720p · Handheld",@"1080":@"1080p · Docked"}[value] ?: (NBCustomSize(value) ? [@"Custom · " stringByAppendingString:value] : @"Game / launcher default");
 }
 static BOOL NBScaleSupported(void) {
 #if NB_BACKEND == 0
@@ -59,7 +63,77 @@ static void NBApplyFPS(void) {
     setenv("TOTK_PHONE_FPS",fps.UTF8String,1);
 #endif
 }
+static NSString *const NBOverlayKey = @"NativeBridge.performanceOverlay";
+static BOOL NBOverlaySupported(void) { return NB_BACKEND != 2; }
+void nb_apply_overlay(void) {
+    NSString *mode=[NSUserDefaults.standardUserDefaults stringForKey:NBOverlayKey];
+    if (!NBOverlaySupported() || !mode || [mode isEqual:@"default"]) return;
+    BOOL full=[mode isEqual:@"full"], visible=![mode isEqual:@"off"];
+#if NB_BACKEND == 0
+    setenv("DM_METAL_HUD",full ? "1" : "0",1);
+    setenv("MTL_HUD_ENABLED",full ? "1" : "0",1);
+    setenv("DM_SHOW_FPS",visible && !full ? "1" : "0",1);
+#elif NB_BACKEND == 1
+    extern void fps_overlay_set_hud_mode(int mode) __attribute__((weak_import));
+    if (fps_overlay_set_hud_mode) fps_overlay_set_hud_mode(!visible ? 0 : full ? 1 : 2);
+    setenv("NATIVEBRIDGE_OVERLAY",mode.UTF8String,1);
+    setenv("TOTK_FPS_OVERLAY",visible ? "1" : "0",1);
+    setenv("TOTK_SHADER_OVERLAY",full ? "1" : "0",1);
+    if (!full) setenv("MTL_HUD_ENABLED","0",1);
+#endif
+}
+static NSString *const NBAspectKey = @"NativeBridge.screenFit";
+static BOOL NBAspectSupported(void) { return NB_BACKEND == 1 || NB_BACKEND == 2; }
+static void NBImportSave(void) {
+    NSFileManager *fm=NSFileManager.defaultManager;
+    NSString *docs=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES).firstObject;
+    NSString *source=[docs stringByAppendingPathComponent:@"NativeBridgeImport"];
+    if (![fm fileExistsAtPath:[source stringByAppendingPathComponent:@"manifest.json"]]) source=[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"NativeBridgeImport"];
+    NSData *data=[NSData dataWithContentsOfFile:[source stringByAppendingPathComponent:@"manifest.json"]];
+    if (!data) return;
+    NSDictionary *manifest=[NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    NSString *relative=manifest[@"saveDestination"];
+    if (![@[@"save",@"zelda-user",@"work/save",@"work/save-3.0.5"] containsObject:relative]) return;
+    NSString *seed=[source stringByAppendingPathComponent:@"save"];
+    if (![fm fileExistsAtPath:seed]) return;
+#if NB_BACKEND == 1
+    if ([relative isEqual:@"zelda-user"]) {
+        extern void runtime_account_uid(uint64_t out[2]);
+        uint64_t uid[2]; runtime_account_uid(uid);
+        relative=[NSString stringWithFormat:@"save/save/%016llx%016llx",(unsigned long long)uid[1],(unsigned long long)uid[0]];
+    }
+#else
+    if ([relative isEqual:@"zelda-user"]) return;
+#endif
+    NSString *destination=[docs stringByAppendingPathComponent:relative];
+    NSError *error=nil;
+    if ([fm fileExistsAtPath:destination]) {
+        NSArray *existing=[fm contentsOfDirectoryAtPath:destination error:&error];
+        if (!existing || existing.count) { NSLog(@"NativeBridge: existing save preserved; import skipped."); return; }
+    }
+    NSString *staged=[destination stringByAppendingFormat:@".import-%@",NSUUID.UUID.UUIDString];
+    [fm createDirectoryAtPath:destination.stringByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:&error];
+    if (![fm copyItemAtPath:seed toPath:staged error:&error]) { NSLog(@"NativeBridge save import: %@",error); [fm removeItemAtPath:staged error:nil]; return; }
+    // Recheck immediately before replacing an empty folder. Never merge saves.
+    if ([fm fileExistsAtPath:destination]) {
+        NSArray *existing=[fm contentsOfDirectoryAtPath:destination error:&error];
+        if (!existing || existing.count || ![fm removeItemAtPath:destination error:&error]) { [fm removeItemAtPath:staged error:nil]; return; }
+    }
+    if (![fm moveItemAtPath:staged toPath:destination error:&error]) NSLog(@"NativeBridge save import: %@",error);
+    else NSLog(@"NativeBridge: imported save into %@",relative);
+}
+static void NBApplyAspect(void) {
+    NSString *fit=[NSUserDefaults.standardUserDefaults stringForKey:NBAspectKey];
+    if (!NBAspectSupported() || !fit || [fit isEqual:@"default"]) return;
+#if NB_BACKEND == 1
+    setenv("TOTK_ASPECT",[fit isEqual:@"fill"] ? "display" : "16:9",1);
+#elif NB_BACKEND == 2
+    setenv("NX_ASPECT",[fit isEqual:@"fill"] ? "auto" : "16:9",1);
+#endif
+}
+
 void nb_apply_settings(void) {
+    NBImportSave(); NBApplyAspect(); nb_apply_overlay();
     NBApplyFPS();
     NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
     NSString *choice = [d stringForKey:NBRenderKey];
@@ -71,6 +145,9 @@ void nb_apply_settings(void) {
     if ([@[@"0.5",@"0.75",@"1.0"] containsObject:choice]) setenv("DM_RENDER_SCALE",choice.UTF8String,1);
 #elif NB_BACKEND == 1
     if ([@[@"960x540",@"1280x720"] containsObject:choice]) setenv("TOTK_RENDER_RES",choice.UTF8String,1);
+#if defined(TOTK_GAME_V143)
+    else if (NBCustomSize(choice)) setenv("TOTK_RENDER_RES",choice.UTF8String,1);
+#endif
 #else
     if ([choice isEqual:@"720"]) setenv("NX_HANDHELD","1",1);
     if ([choice isEqual:@"1080"]) unsetenv("NX_HANDHELD");
@@ -160,7 +237,7 @@ void nb_apply_settings(void) {
 }
 - (void)done { [self dismissViewControllerAnimated:YES completion:nil]; }
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView { return 3; }
-- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return section==2 ? 1 : (section==1 ? 3 : 2); }
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return section==2 ? 1 : (section==1 ? 5 : 2); }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section { return @[@"On-screen controls",@"Graphics",@"Restore defaults"][section]; }
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     if(section==0) return @"Opacity changes immediately and is saved for this game. At 0%, touch input still works. The bottom-center gear follows the touch controls when a controller connects or disconnects. Opening settings does not pause the game.";
@@ -198,6 +275,17 @@ void nb_apply_settings(void) {
         cell.detailTextLabel.text=NBFPSIsSupported() ? ([fps isEqual:@"default"] ? @"Game / launcher default" : [fps stringByAppendingString:@" FPS · restart to apply"]) : @"30/60 switching unavailable for this game";
         cell.accessoryType=NBFPSIsSupported() ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
         cell.selectionStyle=NBFPSIsSupported() ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+    } else if(indexPath.section==1 && indexPath.row==2) {
+        cell.textLabel.text=@"Fit screen without stretching";
+        NSString *fit=[d stringForKey:NBAspectKey] ?: @"default";
+        cell.detailTextLabel.text=NBAspectSupported() ? (@{@"fill":@"Match screen · restart to apply",@"16:9":@"Original 16:9",@"default":@"Game default"}[fit]) : @"No verified aspect-ratio patch for this backend";
+        cell.accessoryType=NBAspectSupported() ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
+        cell.selectionStyle=NBAspectSupported() ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
+    } else if(indexPath.section==1 && indexPath.row==3) {
+        cell.textLabel.text=@"Performance overlay";
+        NSString *mode=[d stringForKey:NBOverlayKey] ?: @"default";
+        cell.detailTextLabel.text=NBOverlaySupported() ? @{@"default":@"Game default",@"full":@"Full details",@"fps":@"FPS only",@"off":@"Off"}[mode] : @"Not exposed by this backend";
+        cell.accessoryType=NBOverlaySupported() ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
     } else if(indexPath.section==1) {
         cell.textLabel.text=@"Apply graphics changes"; cell.detailTextLabel.text=@"Close the game from the app switcher, then reopen.";
     } else { cell.textLabel.text=@"Reset NativeBridge settings"; cell.textLabel.textColor=UIColor.systemRedColor; cell.selectionStyle=UITableViewCellSelectionStyleDefault; }
@@ -211,8 +299,24 @@ void nb_apply_settings(void) {
 - (void)awakeChanged:(UISwitch *)toggle { [NSUserDefaults.standardUserDefaults setBool:toggle.on forKey:NBKeepAwakeKey]; [[NBGameSettings shared] refresh]; }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     if(indexPath.section==2) {
-        for(NSString *key in @[NBOpacityKey,NBKeepAwakeKey,NBRenderKey,NBFPSKey]) [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
+        for(NSString *key in @[NBOpacityKey,NBKeepAwakeKey,NBRenderKey,NBFPSKey,NBAspectKey,NBOverlayKey]) [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
         [[NBGameSettings shared] refresh]; [tableView reloadData]; return;
+    }
+    if(indexPath.section==1 && indexPath.row==3 && NBOverlaySupported()) {
+        UIAlertController *menu=[UIAlertController alertControllerWithTitle:@"Performance overlay" message:@"Close and reopen the game to apply." preferredStyle:UIAlertControllerStyleActionSheet];
+        NSArray *values=@[@"default",@"full",@"fps",@"off"], *labels=@[@"Game default",@"Full details",@"FPS only",@"Off"];
+        for (NSUInteger i=0;i<values.count;i++) { NSString *v=values[i]; [menu addAction:[UIAlertAction actionWithTitle:labels[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [NSUserDefaults.standardUserDefaults setObject:v forKey:NBOverlayKey]; [self.tableView reloadData]; }]]; }
+        [menu addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        menu.popoverPresentationController.sourceView=[tableView cellForRowAtIndexPath:indexPath]; menu.popoverPresentationController.sourceRect=menu.popoverPresentationController.sourceView.bounds;
+        [self presentViewController:menu animated:YES completion:nil]; return;
+    }
+    if(indexPath.section==1 && indexPath.row==2 && NBAspectSupported()) {
+        UIAlertController *menu=[UIAlertController alertControllerWithTitle:@"Screen shape" message:@"Uses this game's camera/aspect patch to match the screen without stretching. Some menus or cutscenes may retain borders. Restart to apply." preferredStyle:UIAlertControllerStyleActionSheet];
+        NSArray *values=@[@"default",@"fill",@"16:9"], *labels=@[@"Game default",@"Match my screen",@"Original 16:9"];
+        for (NSUInteger i=0;i<values.count;i++) { NSString *v=values[i]; [menu addAction:[UIAlertAction actionWithTitle:labels[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) { [NSUserDefaults.standardUserDefaults setObject:v forKey:NBAspectKey]; [self.tableView reloadData]; }]]; }
+        [menu addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        menu.popoverPresentationController.sourceView=[tableView cellForRowAtIndexPath:indexPath]; menu.popoverPresentationController.sourceRect=menu.popoverPresentationController.sourceView.bounds;
+        [self presentViewController:menu animated:YES completion:nil]; return;
     }
     if(indexPath.section==1 && indexPath.row==1 && NBFPSIsSupported()) {
         UIAlertController *fpsMenu=[UIAlertController alertControllerWithTitle:@"Frame-rate target" message:@"Close and reopen the game to apply. 60 FPS is a target, not a guarantee; performance depends on the game and device." preferredStyle:UIAlertControllerStyleActionSheet];
@@ -238,6 +342,19 @@ void nb_apply_settings(void) {
         NSString *value=values[i];
         [alert addAction:[UIAlertAction actionWithTitle:labels[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) { [NSUserDefaults.standardUserDefaults setObject:value forKey:NBRenderKey]; [self.tableView reloadData]; }]];
     }
+#if NB_BACKEND == 1 && defined(TOTK_GAME_V143)
+    [alert addAction:[UIAlertAction actionWithTitle:@"Custom resolution…" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+        UIAlertController *custom=[UIAlertController alertControllerWithTitle:@"Custom render resolution" message:@"Enter WIDTHxHEIGHT, for example 1600x740. Even dimensions from 64 to 4096, at most 4 megapixels. Use Match my screen for the camera aspect ratio. Restart to apply." preferredStyle:UIAlertControllerStyleAlert];
+        [custom addTextFieldWithConfigurationHandler:^(UITextField *field) { field.placeholder=@"1600x740"; field.autocorrectionType=UITextAutocorrectionTypeNo; }];
+        [custom addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+            NSString *value=[custom.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (NBCustomSize(value)) { [NSUserDefaults.standardUserDefaults setObject:value forKey:NBRenderKey]; [self.tableView reloadData]; }
+            else { UIAlertController *error=[UIAlertController alertControllerWithTitle:@"Invalid resolution" message:@"Use even WIDTHxHEIGHT values within the limits. Your previous setting was kept." preferredStyle:UIAlertControllerStyleAlert]; [error addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]]; [self presentViewController:error animated:YES completion:nil]; }
+        }]];
+        [custom addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:custom animated:YES completion:nil];
+    }]];
+#endif
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     alert.popoverPresentationController.sourceView=[tableView cellForRowAtIndexPath:indexPath]; alert.popoverPresentationController.sourceRect=alert.popoverPresentationController.sourceView.bounds;
     [self presentViewController:alert animated:YES completion:nil];

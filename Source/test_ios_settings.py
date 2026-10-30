@@ -8,7 +8,7 @@ import ios_settings as patcher
 FIXTURES=Path(os.environ.get('NATIVEBRIDGE_UPSTREAM_FIXTURES','/not-provided'))
 MAPPING={
     'nxnative':{'nx-main.m':'dm/ios/Sources/main.m','nx-front_ios.m':'dm/ios/Sources/front_ios.m','nx-DmGamepad.m':'dm/ios/Sources/DmGamepad.m'},
-    'macnative':{'mac-main.m':'games/totk/ios/Sources/main.m','mac-build_ipa.py':'games/totk/ios/tools/build_ipa.py','mac-touch_pad.m':'games/totk/ios/Sources/touch_pad.m','mac-game_patches_botw.c':'games/totk/runtime/game_patches_botw.c'},
+    'macnative':{'mac-main.m':'games/totk/ios/Sources/main.m','mac-build_ipa.py':'games/totk/ios/tools/build_ipa.py','mac-touch_pad.m':'games/totk/ios/Sources/touch_pad.m','mac-game_patches_botw.c':'games/totk/runtime/game_patches_botw.c','mac-fps_overlay.c':'games/totk/third_party/d2r_gfx/gfx/nvn/fps_overlay.c'},
     'mush8':{'mush-build.rs':'crates/nxhost/build.rs','mush-main.rs':'crates/nxhost/src/main.rs'}
 }
 @unittest.skipUnless(FIXTURES.is_dir(),'Set NATIVEBRIDGE_UPSTREAM_FIXTURES to actual upstream snapshots')
@@ -51,7 +51,7 @@ class IntegrationTests(unittest.TestCase):
         root=self.fixture('macnative');patcher.apply(root,'macnative')
         source=(root/'games/totk/ios/tools/build_ipa.py').read_text()
         compile(source,'build_ipa.py','exec')
-        self.assertIn('if a.version == "v143": e["TOTK_RENDER_RES"] = "1280x720"',source)
+        self.assertTrue('if a.version == "v143": e["TOTK_RENDER_RES"] = "1280x720"' in source or "TOTK_RENDER_RES='1280x720'" in source)
     def test_original_sources_backed_up_exactly(self):
         root=self.fixture('nxnative');patcher.apply(root,'nxnative')
         for src,dest in MAPPING['nxnative'].items():self.assertEqual((FIXTURES/src).read_bytes(),(root/'.nativebridge-originals'/dest).read_bytes())
