@@ -340,7 +340,7 @@ def game_report(c):
     try:
         extra_size=validate(c,backend)
         if c.get('saveImport'): add('Save import',True,'Imported only into an empty save folder. Existing progress is preserved. Choose the actual save contents, not the emulator user/title wrapper.')
-        if c.get('cheatImport'): add('Cheat archive',True,'Text files will be included for storage only. These backends do not execute Eden cheat codes.')
+        if c.get('cheatImport'): add('Cheat archive',True,'Text files will be included for storage only. Use the iPhone cog to import compatible Zelda static-data cheats. General Eden cheats are unsupported.')
     except (ValueError,OSError) as ex: add('Optional imports',False,str(ex))
     size=sum(f.stat().st_size for f in files)+extra_size
     cache=max(2*size+10*GIB,60*GIB if backend=='macnative' else 0)

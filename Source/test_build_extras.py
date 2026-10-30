@@ -61,3 +61,16 @@ class ExtrasTests(unittest.TestCase):
             destination.write_text('new progress')
             subprocess.run([str(exe),str(docs),str(resources)],check=True,capture_output=True)
             self.assertEqual(destination.read_text(),'new progress')
+
+            pending=stage(docs,{'saveImport':str(save)},'macnative')
+            manifest=json.loads((pending/'manifest.json').read_text());manifest['replaceExisting']=True
+            (pending/'manifest.json').write_text(json.dumps(manifest))
+            subprocess.run([str(exe),str(docs),str(resources)],check=True,capture_output=True)
+            self.assertEqual(destination.read_text(),'imported')
+            backups=list(destination.parent.parent.glob(destination.parent.name+'.backup-*'))
+            self.assertEqual(len(backups),1)
+            self.assertEqual((backups[0]/'progress.dat').read_text(),'new progress')
+            self.assertFalse((pending/'save').exists())
+            destination.write_text('progress after import')
+            subprocess.run([str(exe),str(docs),str(resources)],check=True,capture_output=True)
+            self.assertEqual(destination.read_text(),'progress after import')

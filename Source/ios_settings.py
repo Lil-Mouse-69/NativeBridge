@@ -2,7 +2,7 @@
 import hashlib, json
 from pathlib import Path
 
-VERSION = 3
+VERSION = 4
 
 def digest(data): return hashlib.sha256(data).hexdigest()
 
@@ -15,6 +15,8 @@ def apply(repo, backend):
     repo=Path(repo)
     header=Path(__file__).with_name('iOS').joinpath('NativeBridgeSettings.h').read_bytes()
     phone_patch=Path(__file__).with_name('iOS').joinpath('BOTWPhoneResolution.c.inc').read_bytes()
+    cheats=Path(__file__).with_name('iOS').joinpath('NativeBridgeCheats.h').read_bytes()
+    header=header.replace(b'#import "NativeBridgeCheats.h"',cheats)
     revision=digest(header+phone_patch+str(VERSION).encode())
     manifest=repo/'.nativebridge-settings.json'
     previous={}; source_data={}
@@ -88,7 +90,26 @@ def apply(repo, backend):
         edits[path]=once(text,anchor,anchor[:-1]+'''    unsafe extern "C" { fn nb_apply_settings(); }
     unsafe { nb_apply_settings() };
 }''').encode()
-    else: raise ValueError('Unknown settings backend')
+    # No runtime writes on the Mac export; register only the iPhone's writable main data.
+    if backend=='macnative':
+        for path in ['games/totk/runtime/game_patches.c','games/totk/runtime/game_patches_v143.c','games/totk/runtime/game_patches_botw.c']:
+            text=edits[path].decode() if path in edits else read(path)
+            if path.endswith('/game_patches.c'):
+                start=text.index('    { static const uint64_t sites[] = {0xcb4b10,')
+                end=text.index('    patch_bench_cam(m);',start)
+                aspect=text[start:end]
+                if aspect.count('aspect_install(')!=1: raise RuntimeError('TOTK 1.2.1 aspect integration changed.')
+                branch='    if (CODE_PATCHED_AT_BUILD) {\n        /* Embedded variant'
+                text=once(text,branch,'    if (CODE_PATCHED_AT_BUILD) {\n#if defined(TOTK_GAME_V121)\n'+aspect+'#endif\n        /* Embedded variant')
+            anchor='void runtime_game_patches(Module *m) {'
+            hook='\n#if TARGET_OS_IPHONE\n    extern void nb_cheats_register(void *, uint64_t, uint64_t);\n    nb_cheats_register(m->base,m->data_off,m->size);\n#endif'
+            edits[path]=once(text,anchor,anchor+hook).encode()
+        path='games/totk/ios/tools/build_ipa.py'
+        text=edits[path].decode()
+        anchor="    copy_tree(game_data,res/'game-data')"
+        replacement=anchor+"\n    with (tree/f'extracted/{a.version}/exefs/main').open('rb') as nb_main:\n        nb_main.seek(0x40)\n        (res/'nativebridge-build-id.txt').write_text(nb_main.read(8).hex().upper())"
+        edits[path]=once(text,anchor,replacement).encode()
+    elif backend not in ('nxnative','mush8'): raise ValueError('Unknown settings backend')
     # Validate every integration point and destination before modifying anything.
     for path in edits:
         if path not in originals and path not in previous and (repo/path).exists(): raise RuntimeError('Settings source destination already exists: '+path)

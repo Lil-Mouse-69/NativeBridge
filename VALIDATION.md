@@ -47,3 +47,13 @@ All 37 engine tests passed. The rebuilt, signature-verified app detected the ins
 - Current upstream Zelda export now includes a render hook by default; the adapter accepts both that form and the earlier version-scoped export form.
 - No full game build or new physical iPhone test was performed for 0.5.0. Screen-fit behavior, custom render dimensions, overlay appearance and save usability still require gameplay validation.
 - Cheat import is archive-only. Universal nxnative screen fitting and Mush8 performance-overlay controls are not implemented.
+
+## 0.5.1 validation
+
+52 tests pass, including the native save function replacing an existing save only with explicit import permission, preserving a backup and consuming the pending seed once. Four iPhone header configurations compile. The Files picker and live aspect change still require physical iPhone testing. Cheat execution remains unsupported.
+
+## 0.6.0 validation
+
+53 tests passed with upstream fixtures. Native Foundation execution tests verify static data-cheat parsing, data writes, disable behavior, text/out-of-bounds rejection and 64-bit values; save tests verify backups and one-time replacement. The iPhone header compiles/links for nxnative, TOTK 1.0, TOTK 1.2.1, TOTK 1.4.3, BOTW and Mush8 using runtime stubs. Upstream adapter fixtures cover registration hooks and build-ID metadata generation. Full game rebuilds, picker interaction and cheat/gameplay effects are not device-verified.
+
+TOTK 1.0 full-screen is not implemented: upstream has no camera-aspect sites for that version. Supported runtime cheats are type-0 main-data writes only; all other VM operations and executable/read-only writes are rejected. No universal cheat-compatibility claim is made.

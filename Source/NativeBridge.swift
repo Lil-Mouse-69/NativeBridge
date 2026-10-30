@@ -321,7 +321,7 @@ struct ContentView: View {
                             Text("Seeds an empty save folder on next launch. Zelda/nxnative: select raw save contents. Mush8: select its native save folder containing typeN-indexN folders. Existing progress is preserved. Clear the path to omit the import.").font(.system(size:11)).foregroundStyle(.secondary)
                             Picker("Mario Kart save version (Mush8 only)",selection:$m.saveVersion) { Text("4.0.1").tag("4.0.1"); Text("3.0.5").tag("3.0.5") }
                             pathRow("Archive cheat files (optional · inactive)",value:$m.cheatImport,directory:true,hint:"Title folder containing cheats/BUILD_ID.txt files")
-                            Text("Stores Eden-format text with the app. These native backends do not execute Eden cheat codes; importing does not activate cheats.").font(.system(size:11)).foregroundStyle(.secondary)
+                            Text("This build-time option stores text only. Use the iPhone cog to import and enable compatible Zelda static-data cheats. General Eden code and pointer cheats remain unsupported.").font(.system(size:11)).foregroundStyle(.secondary)
                             Label("Includes an in-game settings menu",systemImage:"gearshape.fill").foregroundStyle(cyan)
                             Text("Change touch-control opacity and supported rendering options on your iPhone. Graphics changes need a restart. Existing apps must be rebuilt.").font(.system(size:11)).foregroundStyle(.secondary)
                             Toggle("Sign and install on my iPhone after building",isOn:$m.install).onChange(of:m.install) { _, enabled in if enabled && !m.running { m.run("accounts") } }

@@ -1,10 +1,28 @@
 # NativeBridge
 
-**Experimental · v0.5.0 · Apple silicon**
+**Experimental · v0.6.0 · Apple silicon**
 
 See [validation and known limits](VALIDATION.md). No game files, keys or firmware are included.
 
 A native Apple-silicon Mac app for building your own Switch game dumps into Mac apps and iPhone/iPad IPAs using existing community backends.
+
+## New in 0.6.0
+
+Use **iPhone cog → Import files → Import save file or folder** to select a save in Files. Close the game and reopen it. The import backs up current progress, replaces it once, and records completion in the menu. Select raw save contents for Zelda/nxnative; Mush8 requires its native `typeN-indexN` layout and matching version. This is not a save-format converter.
+
+Use **Import cheat files**, then **Enable / disable cheats**. Zelda now executes a restricted set of Atmosphere/Eden-format static main-data writes (type 0, main-relative, register zero). The file name must match the bundled main NSO's first eight build-ID bytes. Cheats begin disabled and enabled writes repeat once per second. The entire import is rejected if it contains unsupported instructions, executable/read-only patches, out-of-range addresses, pointers, button conditions or other VM features. Most community code-patch cheats will therefore require a different implementation; universal Eden compatibility is not provided. Disabling stops writes but does not undo prior effects. Other backends still lack runtime cheat execution.
+
+**TOTK 1.0 full-screen remains unsupported.** Its upstream runtime has no camera-aspect offsets. The previous general Zelda label was inaccurate, and the menu now marks this game version unavailable. Zelda's obsolete `display` setting was removed. The TOTK 1.2.1 iPhone path now initializes its existing aspect hook before its early return; BOTW and TOTK 1.4.3 retain their supported hooks. Rebuild and reinstall with this version; updating the Mac wrapper alone cannot alter an existing iPhone game.
+
+53 automated tests passed, including native data-cheat execution and save replacement/backup/one-time import. Six iPhone settings configurations compile/link against runtime stubs. Physical iPhone gameplay verification remains outstanding.
+
+## Unreleased 0.5.1 changes (included in 0.6.0)
+
+The iPhone cog now has **Import files → Import save file or folder**. Choose unpacked save contents in Files, then close and restart the game. This explicit import backs up existing progress before replacing it; the backup stays beside the save folder with a `.backup-UUID` suffix. Import is applied once, not on every launch. Select a compatible save for this game/version. Mush8 requires its native folder layout.
+
+**Import cheat files (inactive)** opens Files for BUILD_ID.txt files or a folder. The files are archived in Documents; no codes execute because the backends lack an Eden cheat interpreter. This does not fix cheat execution.
+
+Zelda screen fitting now clears the obsolete `display` ratio value and uses the phone backend's screen-following default. The cog also requests the actual window ratio through the runtime camera control where available. Other backend limitations still apply; physical iPhone validation is pending.
 
 ## New in 0.5.0
 
