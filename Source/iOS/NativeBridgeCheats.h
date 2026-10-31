@@ -4,36 +4,45 @@ static uint8_t *nb_cheat_main;
 static uint64_t nb_cheat_data,nb_cheat_size;
 void nb_cheats_register(void *base,uint64_t data,uint64_t size) { nb_cheat_main=base; nb_cheat_data=data; nb_cheat_size=size; }
 static NSArray *NBParseCheats(NSString *text,NSString **failure) {
+    text=[text stringByReplacingOccurrencesOfString:@"\uFEFF" withString:@""];
     NSMutableArray *groups=[NSMutableArray array]; NSMutableDictionary *group=nil;
     for(NSString *raw in [text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
         NSString *line=[raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        for (NSString *marker in @[@"//",@";"]) { NSRange comment=[line rangeOfString:marker]; if(comment.location!=NSNotFound && ![line hasPrefix:@"["]) line=[[line substringToIndex:comment.location] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]; }
         if(!line.length || [line hasPrefix:@"#"] || [line hasPrefix:@"//"]) continue;
         if([line hasPrefix:@"["] && [line hasSuffix:@"]"]) {
             group=[@{@"name":[line substringWithRange:NSMakeRange(1,line.length-2)],@"writes":[NSMutableArray array],@"enabled":@NO} mutableCopy]; [groups addObject:group]; continue;
         }
+        if(group[@"error"]) continue;
         if(!group) { *failure=@"Codes must be inside [Cheat name] sections. Master-code sections are unsupported."; return nil; }
         NSArray *parts=[[line componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet] filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
-        if(parts.count<3 || parts.count>4) { *failure=@"Only static main-data writes are supported. Pointer, conditional and button codes need an interpreter not included here."; return nil; }
+        if(parts.count<3 || parts.count>4) { group[@"error"]=@"Unsupported instruction: pointer, conditional and button codes are not implemented."; continue; }
         uint32_t words[4]={0};
         for(NSUInteger i=0;i<parts.count;i++) {
-            NSString *part=parts[i]; unsigned value=0; NSScanner *scanner=[NSScanner scannerWithString:part];
-            if(part.length!=8 || ![scanner scanHexInt:&value] || !scanner.isAtEnd) { *failure=@"Each code word must contain exactly eight hexadecimal digits."; return nil; }
+            NSString *part=parts[i]; if ([part.lowercaseString hasPrefix:@"0x"]) part=[part substringFromIndex:2]; unsigned value=0; NSScanner *scanner=[NSScanner scannerWithString:part];
+            if(part.length!=8 || ![scanner scanHexInt:&value] || !scanner.isAtEnd) { group[@"error"]=@"Each code word must contain exactly eight hexadecimal digits."; break; }
             words[i]=value;
         }
+        if(group[@"error"]) continue;
         unsigned width=(words[0]>>24)&15;
-        if((words[0]&0xf0ffff00u)!=0 || ![@[@1,@2,@4,@8] containsObject:@(width)] || parts.count!=(width==8 ? 4 : 3)) { *failure=@"This file uses unsupported code types or addressing. Only type-0, main-relative writes with register zero are supported."; return nil; }
+        if((words[0]&0xf0ffff00u)!=0 || ![@[@1,@2,@4,@8] containsObject:@(width)] || parts.count!=(width==8 ? 4 : 3)) { group[@"error"]=@"Unsupported code type or addressing; only type-0 main-data writes with register zero are supported."; continue; }
         uint64_t offset=((uint64_t)(words[0]&255)<<32)|words[1];
         uint64_t value=width==8 ? ((uint64_t)words[2]<<32)|words[3] : words[2];
         [group[@"writes"] addObject:@{@"offset":@(offset),@"width":@(width),@"value":@(value)}];
         if([group[@"writes"] count]>4096 || groups.count>128) { *failure=@"Too many cheat instructions."; return nil; }
     }
-    if(!groups.count) { *failure=@"No cheat sections found."; return nil; }
-    for(NSDictionary *entry in groups) if(![entry[@"writes"] count]) { *failure=@"An empty cheat section was found."; return nil; }
-    return groups;
+    NSMutableArray *usable=[NSMutableArray array];
+    for(NSDictionary *entry in groups) {
+        if (!entry[@"error"] && ![entry[@"writes"] count]) continue;
+        [usable addObject:entry];
+    }
+    if(!usable.count) { *failure=@"This file contains names/headings only, with no hexadecimal cheat instructions. Obtain the full codes for your exact game version; formatting cannot create missing codes."; return nil; }
+
+    return usable;
 }
 static NSString *NBCheckCheatWrites(NSArray *groups) {
     if(!nb_cheat_main) return @"Start the game before importing cheats so its data boundaries can be checked.";
-    for(NSDictionary *group in groups) for(NSDictionary *write in group[@"writes"]) {
+    for(NSDictionary *group in groups) if(!group[@"error"]) for(NSDictionary *write in group[@"writes"]) {
         uint64_t offset=[write[@"offset"] unsignedLongLongValue],width=[write[@"width"] unsignedLongLongValue];
         if(offset<nb_cheat_data || offset>nb_cheat_size || width>nb_cheat_size-offset) return @"This cheat patches executable/read-only memory or points outside the main module. It cannot run as an imported iPhone cheat; it needs a compatible build-time patch.";
     }
@@ -47,7 +56,7 @@ static void NBCheatTick(void) {
     if(current.length!=16 || ![current isEqual:stored]) return;
     NSArray *groups=[NSUserDefaults.standardUserDefaults arrayForKey:NBCheatsKey];
     if(NBCheckCheatWrites(groups)) return;
-    for(NSDictionary *group in groups) if([group[@"enabled"] boolValue]) for(NSDictionary *write in group[@"writes"]) {
+    for(NSDictionary *group in groups) if(!group[@"error"] && [group[@"enabled"] boolValue]) for(NSDictionary *write in group[@"writes"]) {
         uint64_t offset=[write[@"offset"] unsignedLongLongValue],value=[write[@"value"] unsignedLongLongValue];
         size_t width=[write[@"width"] unsignedIntegerValue];
         if(width==1 || width==2 || width==4 || width==8) memcpy(nb_cheat_main+offset,&value,width);

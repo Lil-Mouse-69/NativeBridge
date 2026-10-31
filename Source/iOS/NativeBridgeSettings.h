@@ -306,13 +306,24 @@ void nb_apply_settings(void) {
             if (total>256ull*1024*1024 || count>10000) { error=[NSError errorWithDomain:@"NativeBridge" code:2 userInfo:@{NSLocalizedDescriptionKey:@"Import is limited to 256 MiB and 10,000 files."}]; break; }
             if (cheats) {
                 if (NB_BACKEND!=1 || total>1024*1024) { error=[NSError errorWithDomain:@"NativeBridge" code:10 userInfo:@{NSLocalizedDescriptionKey:@"Runtime cheat import supports Zelda only, with files totaling at most 1 MiB."}]; break; }
-                NSString *buildID=[[NSString stringWithContentsOfFile:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"nativebridge-build-id.txt"] encoding:NSUTF8StringEncoding error:nil] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-                if (buildID.length!=16 || ![file.lastPathComponent.stringByDeletingPathExtension.uppercaseString isEqual:buildID.uppercaseString]) { error=[NSError errorWithDomain:@"NativeBridge" code:11 userInfo:@{NSLocalizedDescriptionKey:@"Cheat build ID does not match this game. Select the matching BUILD_ID.txt file. Rebuild with NativeBridge 0.6.0 if this app has no build-ID metadata."}]; break; }
                 NSPredicate *valid=[NSPredicate predicateWithFormat:@"SELF MATCHES %@",@"[0-9a-fA-F]{16}\\.([tT][xX][tT])"];
                 NSString *text=[NSString stringWithContentsOfURL:file encoding:NSUTF8StringEncoding error:&error];
                 if (![valid evaluateWithObject:file.lastPathComponent] || ![text containsString:@"["]) { error=[NSError errorWithDomain:@"NativeBridge" code:3 userInfo:@{NSLocalizedDescriptionKey:@"Choose BUILD_ID.txt cheat files or their folder. Names must contain a 16-digit hexadecimal build ID."}]; break; }
                 NSString *failure=nil; NSArray *groups=NBParseCheats(text,&failure);
-                if (groups) failure=NBCheckCheatWrites(groups);
+                if (groups) {
+                NSString *buildID=[[NSString stringWithContentsOfFile:[NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"nativebridge-build-id.txt"] encoding:NSUTF8StringEncoding error:nil] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+                if (buildID.length!=16 || ![file.lastPathComponent.stringByDeletingPathExtension.uppercaseString isEqual:buildID.uppercaseString]) { error=[NSError errorWithDomain:@"NativeBridge" code:11 userInfo:@{NSLocalizedDescriptionKey:@"Cheat build ID does not match this game. Select the matching BUILD_ID.txt file. Rebuild with NativeBridge 0.6.0 if this app has no build-ID metadata."}]; break; }
+
+                    NSMutableArray *checked=[NSMutableArray array]; NSUInteger compatible=0;
+                    for(NSDictionary *group in groups) {
+                        NSMutableDictionary *entry=[group mutableCopy];
+                        NSString *problem=entry[@"error"] ?: NBCheckCheatWrites(@[entry]);
+                        if(problem) entry[@"error"]=problem; else compatible++;
+                        [checked addObject:entry];
+                    }
+                    groups=checked;
+                    (void)compatible; // keep unsupported entries visible with their individual reasons
+                }
                 if (failure) { error=[NSError errorWithDomain:@"NativeBridge" code:12 userInfo:@{NSLocalizedDescriptionKey:failure}]; break; }
                 [importedCheats addObjectsFromArray:groups];
             } else if ([@[@"zip",@"7z",@"nsp",@"xci",@"ipa"] containsObject:file.pathExtension.lowercaseString]) { error=[NSError errorWithDomain:@"NativeBridge" code:4 userInfo:@{NSLocalizedDescriptionKey:@"Unpack the save first, then select its actual contents."}]; break; }
@@ -349,7 +360,7 @@ void nb_apply_settings(void) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.importBusy=NO;
             if (!error && cheats) { [NSUserDefaults.standardUserDefaults setObject:importedCheats forKey:NBCheatsKey]; [NSUserDefaults.standardUserDefaults setObject:NBCheatBuildID() forKey:@"NativeBridge.cheatBuildID"]; }
-            [self notice:error ? @"Import failed" : cheats ? @"Cheats imported · disabled" : @"Save ready to import" text:error ? error.localizedDescription : cheats ? @"Open Enable / disable cheats to turn on compatible cheats. Only static main-data writes are supported. Back up your saves before using cheats." : @"Close the game from the app switcher and reopen it. Your current save will be backed up before the imported save replaces it. Do not keep playing before restarting."];
+            [self notice:error ? @"Import failed" : cheats ? @"Cheats imported · disabled" : @"Save ready to import" text:error ? error.localizedDescription : cheats ? @"Open Enable / disable cheats to review each entry. Compatible cheats start OFF; unsupported entries show their reason when tapped. A successful import does not mean every cheat can execute." : @"Close the game from the app switcher and reopen it. Your current save will be backed up before the imported save replaces it. Do not keep playing before restarting."];
         });
     });
     }];
@@ -430,8 +441,9 @@ void nb_apply_settings(void) {
             UIAlertController *menu=[UIAlertController alertControllerWithTitle:@"Cheats" message:@"Toggle one cheat at a time. Disabling stops future writes; restart or reload your save to reset values already changed." preferredStyle:UIAlertControllerStyleActionSheet];
             for (NSUInteger i=0;i<groups.count;i++) {
                 NSDictionary *group=groups[i];
-                NSString *title=[NSString stringWithFormat:@"%@ · %@",group[@"name"],[group[@"enabled"] boolValue] ? @"ON" : @"OFF"];
+                NSString *title=[NSString stringWithFormat:@"%@ · %@",group[@"name"],group[@"error"] ? @"UNSUPPORTED" : [group[@"enabled"] boolValue] ? @"ON" : @"OFF"];
                 [menu addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+                    if(group[@"error"]) { [self notice:@"Unsupported cheat" text:group[@"error"]]; return; }
                     NSMutableArray *updated=[groups mutableCopy]; NSMutableDictionary *entry=[group mutableCopy]; entry[@"enabled"]=@(![group[@"enabled"] boolValue]); updated[i]=entry;
                     NSString *failure=NBCheckCheatWrites(updated);
                     if (failure) [self notice:@"Cannot enable cheat" text:failure]; else [NSUserDefaults.standardUserDefaults setObject:updated forKey:NBCheatsKey];

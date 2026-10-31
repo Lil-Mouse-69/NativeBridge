@@ -1,10 +1,16 @@
 # NativeBridge
 
-**Experimental · v0.6.0 · Apple silicon**
+**Experimental · v0.6.1 · Apple silicon**
 
 See [validation and known limits](VALIDATION.md). No game files, keys or firmware are included.
 
 A native Apple-silicon Mac app for building your own Switch game dumps into Mac apps and iPhone/iPad IPAs using existing community backends.
+
+## New in 0.6.1
+
+Cheat imports normalize line endings, whitespace, optional `0x` word prefixes and trailing `;`/`//` comments. Empty headings/credits are skipped. A names-only file is rejected with a specific missing-instructions message. Compatible and unsupported entries in a mixed pack are reviewed independently; unsupported rows explain their reason and cannot be enabled. Every compatible entry still has its own ON/OFF control. Build-ID checks remain mandatory; formatting does not convert cheats between game versions.
+
+TOTK 1.0 full-screen still needs an unimplemented camera patch. This release does not add that patch. It also cannot recover instructions absent from a cheat file or convert 1.4.2 cheats to 1.0.
 
 ## New in 0.6.0
 

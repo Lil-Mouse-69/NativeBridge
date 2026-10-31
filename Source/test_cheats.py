@@ -24,11 +24,16 @@ int main(void) { @autoreleasepool {
  memcpy(&value,main+128,4); if(value) return 3;
  NSArray *code=NBParseCheats(@"[Code]\\n04000000 00000004 DEADBEEF\\n",&failure); if(!NBCheckCheatWrites(code)) return 4;
  NSArray *overflow=NBParseCheats(@"[Overflow]\\n08000000 000000FC 00000000 00000001\\n",&failure); if(!NBCheckCheatWrites(overflow)) return 5;
- if(NBParseCheats(@"[Pointer]\\n580F0000 00000080\\n",&failure)) return 6;
+ NSArray *pointer=NBParseCheats(@"[Pointer]\\n580F0000 00000080\\n",&failure); if(!pointer[0][@"error"]) return 6;
  NSArray *wide=NBParseCheats(@"[Wide]\\n08000000 00000088 01234567 89ABCDEF\\n",&failure); if(!wide || [wide[0][@"writes"][0][@"value"] unsignedLongLongValue]!=0x0123456789ABCDEFULL) return 7;
  enabled[@"enabled"]=@YES; [NSUserDefaults.standardUserDefaults setObject:@[enabled] forKey:NBCheatsKey];
  [NSUserDefaults.standardUserDefaults setObject:@"DIFFERENT-BUILD" forKey:@"NativeBridge.cheatBuildID"]; NBCheatTick();
  memcpy(&value,main+128,4); if(value) return 8;
+ failure=nil;
+ if(NBParseCheats(@"[credits]\\r\\n[Infinite health]\\r\\n",&failure) || ![failure containsString:@"no hexadecimal"]) return 9;
+ failure=nil;
+ NSArray *mixed=NBParseCheats(@"[credits]\\n[Valid]\\n0x04000000  0x00000080  0xDEADBEEF ; comment\\n[Pointer]\\n580F0000 00000080\\n",&failure);
+ if(mixed.count!=2 || mixed[0][@"error"] || !mixed[1][@"error"]) return 10;
  [NSUserDefaults.standardUserDefaults removeObjectForKey:NBCheatsKey];
  [NSUserDefaults.standardUserDefaults removeObjectForKey:@"NativeBridge.cheatBuildID"];
  } return 0; }

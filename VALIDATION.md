@@ -57,3 +57,7 @@ All 37 engine tests passed. The rebuilt, signature-verified app detected the ins
 53 tests passed with upstream fixtures. Native Foundation execution tests verify static data-cheat parsing, data writes, disable behavior, text/out-of-bounds rejection and 64-bit values; save tests verify backups and one-time replacement. The iPhone header compiles/links for nxnative, TOTK 1.0, TOTK 1.2.1, TOTK 1.4.3, BOTW and Mush8 using runtime stubs. Upstream adapter fixtures cover registration hooks and build-ID metadata generation. Full game rebuilds, picker interaction and cheat/gameplay effects are not device-verified.
 
 TOTK 1.0 full-screen is not implemented: upstream has no camera-aspect sites for that version. Supported runtime cheats are type-0 main-data writes only; all other VM operations and executable/read-only writes are rejected. No universal cheat-compatibility claim is made.
+
+## 0.6.1 validation
+
+Cheat parser execution tests now cover a names-only file, mixed supported/unsupported sections, empty metadata headings, optional 0x prefixes, comments, and independent compatibility status. The user-supplied file was inspected locally: it contains 157 lines, no non-heading instruction lines, and labels itself for TOTK 1.4.2; the user is on 1.0. No contents of that file are bundled or uploaded. Physical iPhone interaction remains unverified. TOTK 1.0 full-screen is still unsupported.
